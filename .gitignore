@@ -1,0 +1,6 @@
+/.claude/
+/ai/
+/references/
+/exiledb
+/examples/*/*.json
+/exile.db
