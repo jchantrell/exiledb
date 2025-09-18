@@ -65,5 +65,11 @@ func (m *Cache) GetBundlePath(patch, bundleName string) string {
 	// This prevents issues where bundle names like "Folders/metadata" and "Folders/metadata/49/statdescriptions"
 	// would create conflicting file and directory paths
 	safeBundleName := strings.ReplaceAll(bundleName, "/", "_")
+
+	// Replace spaces with underscores for Windows compatibility
+	// This ensures consistent filename handling across all platforms
+	safeBundleName = strings.ReplaceAll(safeBundleName, " ", "_")
+
 	return filepath.Join(m.GetPatchDir(patch), safeBundleName)
 }
+
