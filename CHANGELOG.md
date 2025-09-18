@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.6](https://github.com/jchantrell/exiledb/compare/v1.0.5...v1.0.6) (2025-09-18)
+
+
+### Bug Fixes
+
+* handle windows filepaths ([21449b3](https://github.com/jchantrell/exiledb/commit/21449b3a0d173d760f8db6feee3b114085b3cc7e))
+
 ## [1.0.5](https://github.com/jchantrell/exiledb/compare/v1.0.4...v1.0.5) (2025-09-18)
 
 
