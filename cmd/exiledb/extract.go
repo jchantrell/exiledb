@@ -97,8 +97,6 @@ missing bundles as needed. Use --force to re-download all bundles.`,
 		cacheDir := filepath.Dir(cache.GetIndexPath(cfg.Patch))
 		cacheDir = filepath.Dir(cacheDir)
 
-		fmt.Println(cacheDir)
-
 		bundleManager, err := bundle.NewManager(cacheDir, cfg.Patch)
 		if err != nil {
 			return fmt.Errorf("creating bundle manager: %w", err)
