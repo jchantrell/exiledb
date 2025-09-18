@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.3](https://github.com/jchantrell/exiledb/compare/v1.0.2...v1.0.3) (2025-09-18)
+
+
+### Bug Fixes
+
+* use correct file name for uploading artifact ([e88c236](https://github.com/jchantrell/exiledb/commit/e88c2360db93f4824fe0c9988f1eac80811e1b5c))
+
 ## [1.0.2](https://github.com/jchantrell/exiledb/compare/v1.0.1...v1.0.2) (2025-09-18)
 
 
