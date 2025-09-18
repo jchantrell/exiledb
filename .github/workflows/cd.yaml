@@ -63,4 +63,4 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.manage-release.outputs.tag_name }}
-          files: exiledb-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }}
+          files: exiledb-${{ matrix.name }}${{ runner.os == 'Windows' && '.exe' || '' }}
