@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.2](https://github.com/jchantrell/exiledb/compare/v1.0.1...v1.0.2) (2025-09-18)
+
+
+### Bug Fixes
+
+* remove mac from release workflow ([d13b6e5](https://github.com/jchantrell/exiledb/commit/d13b6e5888e46a4967bf6ae0e02e2b350633cb2a))
+
 ## [1.0.1](https://github.com/jchantrell/exiledb/compare/v1.0.0...v1.0.1) (2025-09-18)
 
 
