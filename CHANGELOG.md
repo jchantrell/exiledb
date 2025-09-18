@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.5](https://github.com/jchantrell/exiledb/compare/v1.0.4...v1.0.5) (2025-09-18)
+
+
+### Bug Fixes
+
+* remainder of deploy issues ([c655297](https://github.com/jchantrell/exiledb/commit/c655297f57abcad80a472f05d2b54f859ba76605))
+
 ## [1.0.4](https://github.com/jchantrell/exiledb/compare/v1.0.3...v1.0.4) (2025-09-18)
 
 
