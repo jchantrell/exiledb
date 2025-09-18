@@ -35,12 +35,8 @@ var (
 var extractCmd = &cobra.Command{
 	Use:   "extract",
 	Short: "Download bundles and extract DAT files into SQLite database",
-	Long: `Extract downloads Path of Exile game bundles from CDN servers (if needed) and 
-extracts DAT files into a queryable SQLite database. This unified command replaces 
-the previous separate fetch and extract workflow.
-
-By default, the command intelligently uses cached bundles when available and downloads 
-missing bundles as needed. Use --force to re-download all bundles.`,
+	Long: `Extract downloads Path of Exile game bundles from CDN servers and
+extracts DAT files into a queryable SQLite database.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		stats := &ExtractionStats{
 			StartTime: time.Now(),
@@ -146,7 +142,7 @@ missing bundles as needed. Use --force to re-download all bundles.`,
 		}
 		bulkInserter := database.NewBulkInserter(db, bulkInsertOptions)
 
-		progress := utils.NewProgress(len(tables), !(noProgress || cfg.LogFormat == "json" || cfg.LogLevel == "debug"))
+		insertProgress := utils.NewProgress(len(tables), !(noProgress || cfg.LogFormat == "json" || cfg.LogLevel == "debug"))
 
 		processedCount := 0
 		for _, tableName := range tables {
@@ -158,7 +154,7 @@ missing bundles as needed. Use --force to re-download all bundles.`,
 			}
 
 			processedCount++
-			progress.Update(processedCount, tableName)
+			insertProgress.Update(processedCount, tableName)
 			lowerTableName := strings.ToLower(tableName)
 			ext := ".datc64"
 			for _, language := range cfg.Languages {
@@ -244,7 +240,7 @@ missing bundles as needed. Use --force to re-download all bundles.`,
 			stats.ProcessedTables++
 		}
 
-		progress.Finish()
+		insertProgress.Finish()
 		stats.EndTime = time.Now()
 
 		totalDuration := stats.EndTime.Sub(stats.StartTime)

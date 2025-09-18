@@ -18,7 +18,7 @@ type Progress struct {
 	description string
 }
 
-var descLength = 20
+var descLength = 30
 
 // NewProgress creates a new progress bar with the given total count
 func NewProgress(total int, enabled bool) *Progress {
@@ -48,18 +48,17 @@ func NewProgress(total int, enabled bool) *Progress {
 		// Create progress bar with decorators including dynamic description
 		bar = container.New(int64(total),
 			mpb.BarStyle().Lbound("[").Filler("█").Tip("█").Padding("░").Rbound("]"),
-			mpb.PrependDecorators(
+			mpb.AppendDecorators(
+				decor.Percentage(),
+				decor.Name(" | "),
+				decor.CountersNoUnit("%d/%d", decor.WC{C: decor.DindentRight}),
+				decor.Name(" | "),
 				decor.Any(func(statistics decor.Statistics) string {
 					if len(p.description) > descLength {
 						return p.description[:descLength-2] + ".."
 					}
 					return p.description
 				}, decor.WC{W: descLength, C: decor.DindentRight}),
-				decor.Name("  "),
-				decor.CountersNoUnit("%d/%d", decor.WC{C: decor.DindentRight}),
-			),
-			mpb.AppendDecorators(
-				decor.Percentage(),
 			),
 		)
 
