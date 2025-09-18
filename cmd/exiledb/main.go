@@ -13,7 +13,6 @@ import (
 var (
 	cfg     *config.Config
 	cfgFile string
-	verbose bool
 
 	patch      string
 	dbPath     string
@@ -64,23 +63,18 @@ and processes them according to the latest schema to create a local database.`,
 			cfg.LogFormat = logFormat
 		}
 
-		// Configure structured logging based on final configuration
 		var level slog.Level
-		if verbose {
+		switch cfg.LogLevel {
+		case "debug":
 			level = slog.LevelDebug
-		} else {
-			switch cfg.LogLevel {
-			case "debug":
-				level = slog.LevelDebug
-			case "info":
-				level = slog.LevelInfo
-			case "warn":
-				level = slog.LevelWarn
-			case "error":
-				level = slog.LevelError
-			default:
-				level = slog.LevelInfo
-			}
+		case "info":
+			level = slog.LevelInfo
+		case "warn":
+			level = slog.LevelWarn
+		case "error":
+			level = slog.LevelError
+		default:
+			level = slog.LevelInfo
 		}
 
 		var handler slog.Handler
@@ -118,7 +112,6 @@ func main() {
 
 func init() {
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is exiledb.yaml in pwd)")
-	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "verbose output")
 	rootCmd.PersistentFlags().StringVarP(&patch, "patch", "p", "", "patch version to use")
 	rootCmd.PersistentFlags().StringVarP(&dbPath, "database", "d", "", "database file path")
 	rootCmd.PersistentFlags().BoolVar(&allTables, "all-tables", false, "extract all available tables")
