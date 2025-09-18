@@ -31,27 +31,11 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-       include:
+        include:
           - os: ubuntu-latest
-            goos: linux
-            goarch: amd64
             name: linux-amd64
-          - os: ubuntu-latest
-            goos: linux
-            goarch: arm64
-            name: linux-arm64
           - os: windows-latest
-            goos: windows
-            goarch: amd64
             name: windows-amd64
-          - os: macos-latest
-            goos: darwin
-            goarch: amd64
-            name: darwin-amd64
-          - os: macos-latest
-            goos: darwin
-            goarch: arm64
-            name: darwin-arm64
     steps:
       - uses: actions/checkout@v5
 
@@ -59,24 +43,18 @@ jobs:
         with:
           go-version-file: 'go.mod'
 
-      - name: Install dependencies (Linux)
+      - name: Install build dependencies (Ubuntu)
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential
-          if [ "${{ matrix.goarch }}" = "arm64" ]; then
-            sudo apt-get install -y gcc-aarch64-linux-gnu
-            echo "CC=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
-          fi
 
       - name: Build binary
         env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: 1
         run: |
           output_name="exiledb-${{ matrix.name }}"
-          if [ "${{ matrix.goos }}" = "windows" ]; then
+          if [ "$RUNNER_OS" = "Windows" ]; then
             output_name="${output_name}.exe"
           fi
           go build -o "${output_name}" ./cmd/exiledb
