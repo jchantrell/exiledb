@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.4](https://github.com/jchantrell/exiledb/compare/v1.0.3...v1.0.4) (2025-09-18)
+
+
+### Bug Fixes
+
+* remove verbose flag ([a3ad493](https://github.com/jchantrell/exiledb/commit/a3ad4937b81405aa2b42d13114c956ff318fed26))
+
 ## [1.0.3](https://github.com/jchantrell/exiledb/compare/v1.0.2...v1.0.3) (2025-09-18)
 
 
