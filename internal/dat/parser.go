@@ -792,14 +792,15 @@ func (p *DATParser) ReadArray(dynamicData []byte, offset uint64, count uint64, e
 	if elementType == TypeString {
 		// String arrays are arrays of offsets, not the strings themselves
 		if len(state) > 0 && state[0] != nil {
-			result, bytesRead, err := p.readStringArrayWithState(data, dynamicData, count, state[0])
+			result, bytesRead, err := p.readStringArray(data, dynamicData, count, state[0])
 			if err != nil {
 				return nil, err
 			}
 			p.updateLastOffset(state[0], int(offset), bytesRead)
 			return result, nil
 		} else {
-			return p.readStringArray(data, dynamicData, count)
+			result, _, err := p.readStringArray(data, dynamicData, count)
+			return result, err
 		}
 	}
 
@@ -822,13 +823,13 @@ func (p *DATParser) ReadArray(dynamicData []byte, offset uint64, count uint64, e
 }
 
 // readStringArray reads an array of string offsets and returns the actual strings
-func (p *DATParser) readStringArray(data []byte, dynamicData []byte, count uint64) ([]string, error) {
+func (p *DATParser) readStringArray(data []byte, dynamicData []byte, count uint64, state ...*parseState) ([]string, int, error) {
 	// Each string offset is 4 bytes (uint32)
 	offsetSize := 4
 	totalOffsetBytes := int(count) * offsetSize
 
 	if totalOffsetBytes > len(data) {
-		return nil, fmt.Errorf("string array offsets exceed available data")
+		return nil, 0, fmt.Errorf("string array offsets exceed available data")
 	}
 
 	strings := make([]string, count)
@@ -836,14 +837,14 @@ func (p *DATParser) readStringArray(data []byte, dynamicData []byte, count uint6
 		offsetData := data[i*4 : (i+1)*4]
 		offset := uint64(binary.LittleEndian.Uint32(offsetData))
 
-		str, err := p.ReadString(dynamicData, offset)
+		str, err := p.ReadString(dynamicData, offset, state...)
 		if err != nil {
-			return nil, fmt.Errorf("reading string at index %d: %w", i, err)
+			return nil, 0, fmt.Errorf("reading string at index %d: %w", i, err)
 		}
 		strings[i] = str
 	}
 
-	return strings, nil
+	return strings, totalOffsetBytes, nil
 }
 
 // readTypedArray reads a typed array from binary data
@@ -955,30 +956,6 @@ func (p *DATParser) readTypedArray(data []byte, count uint64, elementType FieldT
 
 
 
-// readStringArrayWithState reads an array of string offsets with state tracking
-func (p *DATParser) readStringArrayWithState(data []byte, dynamicData []byte, count uint64, state *parseState) ([]string, int, error) {
-	// Each string offset is 4 bytes (uint32)
-	offsetSize := 4
-	totalOffsetBytes := int(count) * offsetSize
-
-	if totalOffsetBytes > len(data) {
-		return nil, 0, fmt.Errorf("string array offsets exceed available data")
-	}
-
-	strings := make([]string, count)
-	for i := uint64(0); i < count; i++ {
-		offsetData := data[i*4 : (i+1)*4]
-		offset := uint64(binary.LittleEndian.Uint32(offsetData))
-
-		str, err := p.ReadString(dynamicData, offset, state)
-		if err != nil {
-			return nil, 0, fmt.Errorf("reading string at index %d: %w", i, err)
-		}
-		strings[i] = str
-	}
-
-	return strings, totalOffsetBytes, nil
-}
 
 // trackOffsetUsage validates offset usage patterns and tracks consumption
 func (p *DATParser) trackOffsetUsage(state *parseState, offset int, purpose string) error {
