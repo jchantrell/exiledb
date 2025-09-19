@@ -471,7 +471,7 @@ func (p *DATParser) ReadField(data []byte, column *TableColumn, dynamicData []by
 // readFieldWithState reads a field value while tracking dynamic data usage
 func (p *DATParser) readFieldWithState(data []byte, column *TableColumn, dynamicData []byte, state *parseState) (interface{}, error) {
 	if column.Array {
-		return p.readArrayFieldWithState(data, column, dynamicData, state)
+		return p.readArrayField(data, column, dynamicData, state)
 	}
 
 	return p.readScalarFieldWithState(data, column, dynamicData, state)
@@ -717,42 +717,8 @@ func (p *DATParser) readScalarFieldWithState(data []byte, column *TableColumn, d
 	}
 }
 
-// readArrayField reads an array field value
-func (p *DATParser) readArrayField(data []byte, column *TableColumn, dynamicData []byte) (interface{}, error) {
-	// Array metadata size depends on parser width
-	var count, offset uint64
-
-	if p.width == Width32 {
-		// 32-bit: count (4) + offset (4) = 8 bytes total
-		if len(data) < 8 {
-			return nil, fmt.Errorf("insufficient data for 32-bit array field")
-		}
-		count = uint64(binary.LittleEndian.Uint32(data[0:4]))
-		offset = uint64(binary.LittleEndian.Uint32(data[4:8]))
-	} else {
-		// 64-bit: count (4) + padding (4) + offset (4) + padding (4) = 16 bytes total
-		if len(data) < 16 {
-			return nil, fmt.Errorf("insufficient data for 64-bit array field")
-		}
-		count = uint64(binary.LittleEndian.Uint32(data[0:4]))
-		offset = uint64(binary.LittleEndian.Uint32(data[8:12])) // Skip 4 bytes, read at offset 8
-	}
-
-	// Check for sentinel values in count (indicating null/empty array)
-	if count == 0xFEFEFEFE {
-		return p.createEmptyArray(column.Type)
-	}
-
-	// Apply field-specific validation and logging
-	if err := p.validateArraySize(count, column, nil); err != nil {
-		return nil, err
-	}
-
-	return p.ReadArray(dynamicData, offset, count, column.Type)
-}
-
-// readArrayFieldWithState reads an array field value with offset tracking
-func (p *DATParser) readArrayFieldWithState(data []byte, column *TableColumn, dynamicData []byte, state *parseState) (interface{}, error) {
+// readArrayField reads an array field value with optional offset tracking state
+func (p *DATParser) readArrayField(data []byte, column *TableColumn, dynamicData []byte, state ...*parseState) (interface{}, error) {
 	// Array format based on poe-dat-viewer implementation:
 	// Arrays use two offsets: count + variable data offset separated by memsize
 	// 64-bit: count (4 bytes) + offset (4 bytes at +8) = 16 bytes total slot
@@ -794,13 +760,20 @@ func (p *DATParser) readArrayFieldWithState(data []byte, column *TableColumn, dy
 		return p.createEmptyArray(column.Type)
 	}
 
+	// Extract state for validation if provided
+	var statePtr *parseState
+	if len(state) > 0 {
+		statePtr = state[0]
+	}
+
 	// Apply field-specific validation and logging
-	if err := p.validateArraySize(count, column, state); err != nil {
+	if err := p.validateArraySize(count, column, statePtr); err != nil {
 		return nil, err
 	}
 
-	return p.ReadArray(dynamicData, offset, count, column.Type, state)
+	return p.ReadArray(dynamicData, offset, count, column.Type, state...)
 }
+
 
 // ReadString implements the Parser interface for reading UTF-16 strings
 func (p *DATParser) ReadString(dynamicData []byte, offset uint64, state ...*parseState) (string, error) {
@@ -1383,7 +1356,7 @@ func (p *DATParser) discoverFieldOffsets(rowData []byte, schema *TableSchema, ma
 func (p *DATParser) readFieldWithDynamicSize(fieldData []byte, column *TableColumn, dynamicData []byte, state *parseState) (interface{}, error) {
 	// Use the existing field reading logic but with exact field boundaries
 	if column.Array {
-		return p.readArrayFieldWithState(fieldData, column, dynamicData, state)
+		return p.readArrayField(fieldData, column, dynamicData, state)
 	}
 	return p.readScalarFieldWithState(fieldData, column, dynamicData, state)
 }
