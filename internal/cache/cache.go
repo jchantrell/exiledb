@@ -18,7 +18,6 @@ func CacheManager() *Cache {
 func (m *Cache) GetCacheDir() string {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		// Fallback to current directory
 		return filepath.Join(".", ".exiledb", "cache")
 	}
 	return filepath.Join(homeDir, ".exiledb", "cache")
@@ -61,15 +60,7 @@ func (m *Cache) GetIndexPath(patch string) string {
 
 // GetBundlePath returns the path to a bundle file for a patch
 func (m *Cache) GetBundlePath(patch, bundleName string) string {
-	// Replace forward slashes with underscores to avoid directory conflicts
-	// This prevents issues where bundle names like "Folders/metadata" and "Folders/metadata/49/statdescriptions"
-	// would create conflicting file and directory paths
 	safeBundleName := strings.ReplaceAll(bundleName, "/", "_")
-
-	// Replace spaces with underscores for Windows compatibility
-	// This ensures consistent filename handling across all platforms
 	safeBundleName = strings.ReplaceAll(safeBundleName, " ", "_")
-
 	return filepath.Join(m.GetPatchDir(patch), safeBundleName)
 }
-

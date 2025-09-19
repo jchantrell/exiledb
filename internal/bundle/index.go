@@ -26,23 +26,21 @@ type bundlePathrep struct {
 	recursiveSize uint32
 }
 
-
-
 func loadBundleIndex(indexFile io.ReaderAt) (bundleIndex, error) {
 	// Try to determine if this is compressed bundle data or raw index data
 	// by attempting to read it as a bundle first
-	indexBundle, err := openBundle(indexFile)
+	indexBundle, err := OpenBundle(indexFile)
 	if err != nil {
 		// If it fails to parse as a bundle, assume it's raw index data
 		return loadBundleIndexFromRawData(indexFile)
 	}
-	
+
 	// Successfully parsed as bundle - decompress it
 	indexData := make([]byte, indexBundle.Size())
 	if _, err := indexBundle.ReadAt(indexData, 0); err != nil {
 		return bundleIndex{}, fmt.Errorf("unable to read index bundle: %w", err)
 	}
-	
+
 	// Parse the decompressed data
 	return loadBundleIndexFromRawData(bytes.NewReader(indexData))
 }
@@ -52,7 +50,7 @@ func loadBundleIndexFromRawData(indexFile io.ReaderAt) (bundleIndex, error) {
 	var indexData []byte
 	var offset int64 = 0
 	buf := make([]byte, 64*1024) // 64KB chunks
-	
+
 	for {
 		n, err := indexFile.ReadAt(buf, offset)
 		if err != nil && err != io.EOF {
@@ -129,8 +127,8 @@ func loadBundleIndexFromRawData(indexFile io.ReaderAt) (bundleIndex, error) {
 	if p >= len(indexData) {
 		return bundleIndex{}, fmt.Errorf("pathrep bundle offset %d exceeds data length %d", p, len(indexData))
 	}
-	
-	pathrepBundle, err := openBundle(bytes.NewReader(indexData[p:]))
+
+	pathrepBundle, err := OpenBundle(bytes.NewReader(indexData[p:]))
 	if err != nil {
 		return bundleIndex{}, fmt.Errorf("unable to read pathrep bundle at offset %d: %w", p, err)
 	}
@@ -154,7 +152,7 @@ func loadBundleIndexFromRawData(indexFile io.ReaderAt) (bundleIndex, error) {
 				if fe, found := filemap[legacyHash]; found {
 					files[fe].path = path
 				} else {
-					// This is not a panic condition - some paths in the pathmap 
+					// This is not a panic condition - some paths in the pathmap
 					// may not have corresponding files in the filemap
 					// This is normal behavior for bundle indices
 					continue
@@ -263,4 +261,3 @@ func (idx *indexImpl) ListFiles() []string {
 	}
 	return files
 }
-

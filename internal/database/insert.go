@@ -14,11 +14,10 @@ import (
 
 // BulkInserter handles efficient batch insertion of DAT file data
 type BulkInserter struct {
-	db                        *Database
-	batchSize                 int
-	maxRetries                int
-	maxJunctionTableArraySize int
-	arrayWarningThreshold     int
+	db                    *Database
+	batchSize             int
+	maxRetries            int
+	arrayWarningThreshold int
 }
 
 // BulkInsertOptions configures bulk insertion behavior
@@ -29,9 +28,6 @@ type BulkInsertOptions struct {
 	// MaxRetries sets the maximum number of retry attempts for failed operations
 	MaxRetries int
 
-	// MaxJunctionTableArraySize limits the maximum array size for junction table creation
-	MaxJunctionTableArraySize int
-
 	// ArrayWarningThreshold sets the threshold for logging warnings about large arrays
 	ArrayWarningThreshold int
 }
@@ -39,10 +35,9 @@ type BulkInsertOptions struct {
 // DefaultBulkInsertOptions returns sensible defaults for bulk insertion
 func DefaultBulkInsertOptions() *BulkInsertOptions {
 	return &BulkInsertOptions{
-		BatchSize:                 1000,
-		MaxRetries:                3,
-		MaxJunctionTableArraySize: 100000, // Temporarily increased to test core functionality
-		ArrayWarningThreshold:     5000,   // Warn for extremely large arrays
+		BatchSize:             1000,
+		MaxRetries:            3,
+		ArrayWarningThreshold: 5000, // Warn for extremely large arrays
 	}
 }
 
@@ -53,11 +48,10 @@ func NewBulkInserter(db *Database, options *BulkInsertOptions) *BulkInserter {
 	}
 
 	return &BulkInserter{
-		db:                        db,
-		batchSize:                 options.BatchSize,
-		maxRetries:                options.MaxRetries,
-		maxJunctionTableArraySize: options.MaxJunctionTableArraySize,
-		arrayWarningThreshold:     options.ArrayWarningThreshold,
+		db:                    db,
+		batchSize:             options.BatchSize,
+		maxRetries:            options.MaxRetries,
+		arrayWarningThreshold: options.ArrayWarningThreshold,
 	}
 }
 

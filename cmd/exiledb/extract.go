@@ -91,7 +91,7 @@ extracts DAT files into a queryable SQLite database.`,
 			return fmt.Errorf("downloading bundles: %w", err)
 		}
 
-		bundleManager, err := bundle.NewManager(cache.GetCacheDir(), cfg.Patch)
+		bundleManager, err := bundle.NewBundleManager(cache.GetCacheDir(), cfg.Patch)
 		if err != nil {
 			return fmt.Errorf("creating bundle manager: %w", err)
 		}
@@ -130,7 +130,7 @@ extracts DAT files into a queryable SQLite database.`,
 		processingStartTime := time.Now()
 		slog.Info("Creating database schemas", "count", totalTables)
 
-		schemaProgress := utils.NewProgress(stats.TotalTables, showProgress)
+		schemaProgress := utils.NewProgress(totalTables, showProgress)
 		schemaProgressCallback := func(current int, total int, description string) {
 			schemaProgress.Update(current, description)
 		}
@@ -145,10 +145,9 @@ extracts DAT files into a queryable SQLite database.`,
 
 		slog.Info("Inserting dat files", "count", totalSchemas)
 		bulkInsertOptions := &database.BulkInsertOptions{
-			BatchSize:                 1000,
-			MaxRetries:                3,
-			MaxJunctionTableArraySize: 50000, // Allow very large legitimate arrays while preventing explosion
-			ArrayWarningThreshold:     5000,  // Warn for extremely large arrays
+			BatchSize:             1000,
+			MaxRetries:            3,
+			ArrayWarningThreshold: 5000, // Warn for extremely large arrays
 		}
 		bulkInserter := database.NewBulkInserter(db, bulkInsertOptions)
 
@@ -194,47 +193,38 @@ extracts DAT files into a queryable SQLite database.`,
 					continue
 				}
 
-				parserOptions := &dat.ParserOptions{
-					StrictMode:                 false,
-					ValidateReferences:         false,
-					MaxStringLength:            65536, // 64KB max string length
-					MaxArrayCount:              65536, // Restored to match reference implementations
-					MaxJunctionTableArrayCount: 65536, // Allow large arrays with content validation
-					ArraySizeWarningThreshold:  1000,  // Warn when arrays exceed 1000 elements
-				}
+				parserOptions := &dat.ParserOptions{}
 				parser := dat.NewDATParser(parserOptions)
 
 				datReader := strings.NewReader(string(datData))
 				parsedTable, err := parser.ParseDATFileWithFilename(context.Background(), datReader, path, &datSchema)
-				if err != nil {
+				if err != nil || len(parsedTable.Rows) == 0 {
 					slog.Error("Failed to parse DAT file", "path", path, "table", datSchema.Name, "size_bytes", len(datData), "error", err)
 					stats.ProcessingErrors++
 					continue
 				}
 
-				if len(parsedTable.Rows) > 0 {
-					rowData := make([]database.RowData, len(parsedTable.Rows))
-					for i, row := range parsedTable.Rows {
-						rowData[i] = database.RowData{
-							Index:  row.Index,
-							Values: row.Fields,
-						}
+				rowData := make([]database.RowData, len(parsedTable.Rows))
+				for i, row := range parsedTable.Rows {
+					rowData[i] = database.RowData{
+						Index:  row.Index,
+						Values: row.Fields,
 					}
-
-					tableData := &database.TableData{
-						Schema:   &datSchema,
-						Rows:     rowData,
-						Language: language,
-					}
-					if err := bulkInserter.InsertTableData(context.Background(), tableData); err != nil {
-						slog.Error("Database insert failed", "table", datSchema.Name, "error", err)
-						slog.Error("Failed to insert records", "table", datSchema.Name, "error", err)
-						stats.DatabaseErrors++
-						continue
-					}
-
-					stats.RowsInserted += int64(len(parsedTable.Rows))
 				}
+
+				tableData := &database.TableData{
+					Schema:   &datSchema,
+					Rows:     rowData,
+					Language: language,
+				}
+				if err := bulkInserter.InsertTableData(context.Background(), tableData); err != nil {
+					slog.Error("Database insert failed", "table", datSchema.Name, "error", err)
+					slog.Error("Failed to insert records", "table", datSchema.Name, "error", err)
+					stats.DatabaseErrors++
+					continue
+				}
+
+				stats.RowsInserted += int64(len(parsedTable.Rows))
 
 			}
 			stats.ProcessedTables++

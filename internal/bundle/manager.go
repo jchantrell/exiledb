@@ -14,8 +14,8 @@ import (
 	"github.com/jchantrell/exiledb/internal/cache"
 )
 
-// Manager provides a high-level API for accessing bundle files
-type Manager struct {
+// BundleManager provides a high-level API for accessing bundle files
+type BundleManager struct {
 	cacheDir  string
 	patch     string
 	index     *bundleIndex
@@ -23,8 +23,8 @@ type Manager struct {
 	cache     *cache.Cache
 }
 
-// NewManager creates a new bundle manager
-func NewManager(cacheDir, patch string) (*Manager, error) {
+// NewBundleManager creates a new bundle manager
+func NewBundleManager(cacheDir, patch string) (*BundleManager, error) {
 	// Load the index from the cache directory using patch version
 	indexPath := filepath.Join(cacheDir, patch, "_.index.bin")
 
@@ -46,7 +46,7 @@ func NewManager(cacheDir, patch string) (*Manager, error) {
 		return nil, fmt.Errorf("loading bundle index: %w", err)
 	}
 
-	manager := &Manager{
+	manager := &BundleManager{
 		cacheDir:  cacheDir,
 		patch:     patch,
 		index:     &index,
@@ -60,7 +60,7 @@ func NewManager(cacheDir, patch string) (*Manager, error) {
 }
 
 // SetLanguages configures the languages to search for files
-func (m *Manager) SetLanguages(languages []string) {
+func (m *BundleManager) SetLanguages(languages []string) {
 	if len(languages) == 0 {
 		m.languages = []string{"English"}
 		return
@@ -70,7 +70,7 @@ func (m *Manager) SetLanguages(languages []string) {
 }
 
 // FileExists checks if a file exists in the bundle, trying language-specific paths as needed
-func (m *Manager) FileExists(path string) bool {
+func (m *BundleManager) FileExists(path string) bool {
 	paths := m.resolvePaths(path)
 	for _, p := range paths {
 		if m.findFileInIndex(p) != nil {
@@ -81,7 +81,7 @@ func (m *Manager) FileExists(path string) bool {
 }
 
 // GetFile reads the entire contents of a file from the bundle, trying language-specific paths as needed
-func (m *Manager) GetFile(path string) ([]byte, error) {
+func (m *BundleManager) GetFile(path string) ([]byte, error) {
 	paths := m.resolvePaths(path)
 
 	var lastErr error
@@ -118,13 +118,13 @@ func (m *Manager) GetFile(path string) ([]byte, error) {
 }
 
 // Close closes the manager and releases resources
-func (m *Manager) Close() error {
+func (m *BundleManager) Close() error {
 	// Nothing to close for now, but keeping the interface for future use
 	return nil
 }
 
 // findFileInIndex searches for a file in the loaded index
-func (m *Manager) findFileInIndex(path string) *bundleFileInfo {
+func (m *BundleManager) findFileInIndex(path string) *bundleFileInfo {
 	files := m.index.files
 
 	// Binary search for the file
@@ -145,7 +145,7 @@ func (m *Manager) findFileInIndex(path string) *bundleFileInfo {
 }
 
 // readFileFromBundle reads a file's content from its bundle
-func (m *Manager) readFileFromBundle(fileInfo *bundleFileInfo) ([]byte, error) {
+func (m *BundleManager) readFileFromBundle(fileInfo *bundleFileInfo) ([]byte, error) {
 	// Get bundle name
 	bundleName := m.index.bundles[fileInfo.bundleId]
 
@@ -185,7 +185,7 @@ func (m *Manager) readFileFromBundle(fileInfo *bundleFileInfo) ([]byte, error) {
 	defer bundleFile.Close()
 
 	// Open the bundle using the low-level bundle reader
-	bundle, err := openBundle(bundleFile)
+	bundle, err := OpenBundle(bundleFile)
 	if err != nil {
 		return nil, fmt.Errorf("opening bundle %s: %w", bundleName, err)
 	}
@@ -201,7 +201,7 @@ func (m *Manager) readFileFromBundle(fileInfo *bundleFileInfo) ([]byte, error) {
 }
 
 // resolvePaths generates all possible paths for a file based on configured languages
-func (m *Manager) resolvePaths(inputPath string) []string {
+func (m *BundleManager) resolvePaths(inputPath string) []string {
 	var paths []string
 
 	// Handle both uppercase Data/ and lowercase data/ paths
@@ -235,7 +235,7 @@ func (m *Manager) resolvePaths(inputPath string) []string {
 
 // isDirectDATFile determines if a file is a standalone DAT file vs a bundle container
 // by examining its structure for the characteristic boundary marker
-func (m *Manager) isDirectDATFile(filePath string) (bool, error) {
+func (m *BundleManager) isDirectDATFile(filePath string) (bool, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return false, err

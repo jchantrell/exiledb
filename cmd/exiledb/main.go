@@ -32,14 +32,12 @@ and transforming it into a queryable SQLite database.
 This tool downloads bundle files from the PoE CDN, extracts DAT files,
 and processes them according to the latest schema to create a local database.`,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		// Load configuration first
 		var err error
 		cfg, err = config.Load(cfgFile)
 		if err != nil {
 			return fmt.Errorf("failed to load configuration: %w", err)
 		}
 
-		// Apply CLI flag overrides to configuration
 		if cmd.Flags().Changed("patch") {
 			cfg.Patch = patch
 		}

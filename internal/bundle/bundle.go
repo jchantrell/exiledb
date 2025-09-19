@@ -39,19 +39,13 @@ type bundleHead struct {
 	_                            [4]uint32
 }
 
-// OpenBundle is the exported version of openBundle
-func OpenBundle(r io.ReaderAt) (Bundle, error) {
-	return openBundle(r)
-}
-
-func openBundle(r io.ReaderAt) (*bundle, error) {
+func OpenBundle(r io.ReaderAt) (*bundle, error) {
 	rs := io.NewSectionReader(r, 0, 1<<24)
 
 	var bh bundleHead
 	if err := binary.Read(rs, binary.LittleEndian, &bh); err != nil {
 		return nil, fmt.Errorf("failed to read bundle head: %w", err)
 	}
-
 
 	blockSizes := make([]uint32, bh.BlockCount)
 	if err := binary.Read(rs, binary.LittleEndian, &blockSizes); err != nil {
@@ -160,7 +154,6 @@ func NewLoader(lower fs.FS) (*bundleFS, error) {
 		return nil, err
 	}
 
-
 	// FIXME: It'd be neat to defer this until it's needed.
 	idx, err := loadBundleIndex(indexFile.(io.ReaderAt))
 	if err != nil {
@@ -241,8 +234,7 @@ func (bff *bundleFsFile) initReader() error {
 		}
 	}
 
-
-	bundle, err := openBundle(bundleFile.(io.ReaderAt))
+	bundle, err := OpenBundle(bundleFile.(io.ReaderAt))
 	if err != nil {
 		return &fs.PathError{
 			Op:   "open",
@@ -442,3 +434,4 @@ func (bfde *bundleFsDirEnt) Info() (fs.FileInfo, error) {
 		return &bundleFsFileInfo{bfde.file}, nil
 	}
 }
+

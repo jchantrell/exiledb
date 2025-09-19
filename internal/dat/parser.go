@@ -85,10 +85,6 @@ type ParserOptions struct {
 	// MaxArrayCount limits the maximum number of array elements
 	MaxArrayCount int
 
-	// MaxJunctionTableArrayCount limits the maximum array size for junction table creation
-	// This is separate from MaxArrayCount to allow different limits for different purposes
-	MaxJunctionTableArrayCount int
-
 	// ArraySizeWarningThreshold sets the threshold for logging warnings about large arrays
 	ArraySizeWarningThreshold int
 }
@@ -96,12 +92,11 @@ type ParserOptions struct {
 // DefaultParserOptions returns sensible default options for DAT parsing
 func DefaultParserOptions() *ParserOptions {
 	return &ParserOptions{
-		StrictMode:                 false,
-		ValidateReferences:         false,
-		MaxStringLength:            65536, // 64KB max string length
-		MaxArrayCount:              65536, // Restored to match reference implementations
-		MaxJunctionTableArrayCount: 65536, // Allow large arrays but validate content quality
-		ArraySizeWarningThreshold:  1000,  // Warn when arrays exceed 1000 elements (legitimate large arrays exist)
+		StrictMode:                false,
+		ValidateReferences:        false,
+		MaxStringLength:           65536, // 64KB max string length
+		MaxArrayCount:             65536, // Restored to match reference implementations
+		ArraySizeWarningThreshold: 1000,  // Warn when arrays exceed 1000 elements (legitimate large arrays exist)
 	}
 }
 
@@ -1368,9 +1363,9 @@ func (p *DATParser) validateArraySize(count uint64, column *TableColumn, state *
 	}
 
 	// Check against junction table limit for foreign key arrays
-	if column.References != nil && count > uint64(p.options.MaxJunctionTableArrayCount) {
+	if column.References != nil && count > uint64(p.options.MaxArrayCount) {
 		return fmt.Errorf("junction table array count %d exceeds maximum %d for field %s",
-			count, p.options.MaxJunctionTableArrayCount, fieldName)
+			count, p.options.MaxArrayCount, fieldName)
 	}
 
 	// Log warnings for arrays exceeding the warning threshold
