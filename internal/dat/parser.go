@@ -474,11 +474,11 @@ func (p *DATParser) readFieldWithState(data []byte, column *TableColumn, dynamic
 		return p.readArrayField(data, column, dynamicData, state)
 	}
 
-	return p.readScalarFieldWithState(data, column, dynamicData, state)
+	return p.readScalarField(data, column, dynamicData, state)
 }
 
 // readScalarField reads a non-array field value
-func (p *DATParser) readScalarField(data []byte, column *TableColumn, dynamicData []byte) (interface{}, error) {
+func (p *DATParser) readScalarField(data []byte, column *TableColumn, dynamicData []byte, state ...*parseState) (interface{}, error) {
 	switch column.Type {
 	case TypeBool:
 		if len(data) < 1 {
@@ -549,7 +549,7 @@ func (p *DATParser) readScalarField(data []byte, column *TableColumn, dynamicDat
 			return "", nil // Return empty string for NULL
 		}
 
-		return p.ReadString(dynamicData, uint64(offset))
+		return p.ReadString(dynamicData, uint64(offset), state...)
 
 	case TypeRow, TypeForeignRow, TypeEnumRow:
 		if len(data) < 4 {
@@ -597,125 +597,6 @@ func (p *DATParser) readScalarField(data []byte, column *TableColumn, dynamicDat
 	}
 }
 
-// readScalarFieldWithState reads a non-array field value with offset tracking
-func (p *DATParser) readScalarFieldWithState(data []byte, column *TableColumn, dynamicData []byte, state *parseState) (interface{}, error) {
-	switch column.Type {
-	case TypeBool:
-		if len(data) < 1 {
-			return nil, fmt.Errorf("insufficient data for bool field")
-		}
-		return data[0] != 0, nil
-
-	case TypeInt16:
-		if len(data) < 2 {
-			return nil, fmt.Errorf("insufficient data for i16 field")
-		}
-		return int16(binary.LittleEndian.Uint16(data)), nil
-
-	case TypeUint16:
-		if len(data) < 2 {
-			return nil, fmt.Errorf("insufficient data for u16 field")
-		}
-		return binary.LittleEndian.Uint16(data), nil
-
-	case TypeInt32:
-		if len(data) < 4 {
-			return nil, fmt.Errorf("insufficient data for i32 field")
-		}
-		return int32(binary.LittleEndian.Uint32(data)), nil
-
-	case TypeUint32:
-		if len(data) < 4 {
-			return nil, fmt.Errorf("insufficient data for u32 field")
-		}
-		return binary.LittleEndian.Uint32(data), nil
-
-	case TypeInt64:
-		if len(data) < 8 {
-			return nil, fmt.Errorf("insufficient data for i64 field")
-		}
-		return int64(binary.LittleEndian.Uint64(data)), nil
-
-	case TypeUint64:
-		if len(data) < 8 {
-			return nil, fmt.Errorf("insufficient data for u64 field")
-		}
-		return binary.LittleEndian.Uint64(data), nil
-
-	case TypeFloat32:
-		if len(data) < 4 {
-			return nil, fmt.Errorf("insufficient data for f32 field")
-		}
-		bits := binary.LittleEndian.Uint32(data)
-		return *(*float32)(unsafe.Pointer(&bits)), nil
-
-	case TypeFloat64:
-		if len(data) < 8 {
-			return nil, fmt.Errorf("insufficient data for f64 field")
-		}
-		bits := binary.LittleEndian.Uint64(data)
-		return *(*float64)(unsafe.Pointer(&bits)), nil
-
-	case TypeString:
-		// IMPORTANT: .datc64 files still use 4-byte string offsets despite being 64-bit
-		// Only array counts and row references use 8-byte values in .datc64 files
-		if len(data) < 4 {
-			return nil, fmt.Errorf("insufficient data for string offset")
-		}
-		offset := binary.LittleEndian.Uint32(data)
-
-		// Check for NULL string sentinel
-		if offset == NullRowSentinel {
-			return "", nil // Return empty string for NULL
-		}
-
-		return p.ReadString(dynamicData, uint64(offset), state)
-
-	case TypeRow, TypeForeignRow, TypeEnumRow:
-		if len(data) < 4 {
-			return nil, fmt.Errorf("insufficient data for row reference")
-		}
-		value := binary.LittleEndian.Uint32(data)
-		if value == NullRowSentinel {
-			return nil, nil // Null reference
-		}
-		return &value, nil
-
-	case TypeLongID:
-		// LongID size depends on parser width
-		if p.width == Width32 {
-			// 32-bit: 8-byte LongID
-			if len(data) < 8 {
-				return nil, fmt.Errorf("insufficient data for 32-bit LongID field")
-			}
-			value := binary.LittleEndian.Uint64(data)
-			if value == 0xfefe_fefe_fefe_fefe { // LongID null sentinel (extended from regular row sentinel)
-				return nil, nil // Null reference
-			}
-			return &value, nil
-		} else {
-			// 64-bit: 16-byte LongID
-			if len(data) < 16 {
-				return nil, fmt.Errorf("insufficient data for 64-bit LongID field")
-			}
-			// Read low 8 bytes as the actual value
-			value := binary.LittleEndian.Uint64(data[0:8])
-			// Read high 8 bytes for validation (should be 0 or null sentinel)
-			high := binary.LittleEndian.Uint64(data[8:16])
-
-			if value == 0xfefe_fefe_fefe_fefe && high == 0xfefe_fefe_fefe_fefe {
-				return nil, nil // Null reference
-			}
-			if high != 0 {
-				return nil, fmt.Errorf("unexpected value in high half of LongID: %016x %016x", value, high)
-			}
-			return &value, nil
-		}
-
-	default:
-		return nil, fmt.Errorf("unsupported field type: %s", column.Type)
-	}
-}
 
 // readArrayField reads an array field value with optional offset tracking state
 func (p *DATParser) readArrayField(data []byte, column *TableColumn, dynamicData []byte, state ...*parseState) (interface{}, error) {
@@ -1358,5 +1239,5 @@ func (p *DATParser) readFieldWithDynamicSize(fieldData []byte, column *TableColu
 	if column.Array {
 		return p.readArrayField(fieldData, column, dynamicData, state)
 	}
-	return p.readScalarFieldWithState(fieldData, column, dynamicData, state)
+	return p.readScalarField(fieldData, column, dynamicData, state)
 }
