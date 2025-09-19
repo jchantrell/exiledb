@@ -3,229 +3,28 @@ package dat
 import (
 	"encoding/binary"
 	"fmt"
-	"io"
 	"unicode/utf16"
 	"unsafe"
 )
 
-// BinaryReader provides utilities for reading binary data from DAT files
-type BinaryReader struct {
-	data   []byte
-	offset int
-	size   int
-}
 
-// NewBinaryReader creates a new binary reader for the given data
-func NewBinaryReader(data []byte) *BinaryReader {
-	return &BinaryReader{
-		data:   data,
-		offset: 0,
-		size:   len(data),
-	}
-}
-
-// Position returns the current read position
-func (br *BinaryReader) Position() int {
-	return br.offset
-}
-
-// Size returns the total size of the data
-func (br *BinaryReader) Size() int {
-	return br.size
-}
-
-// Remaining returns the number of bytes remaining to read
-func (br *BinaryReader) Remaining() int {
-	return br.size - br.offset
-}
-
-// Seek sets the read position to the given offset
-func (br *BinaryReader) Seek(offset int) error {
-	if offset < 0 || offset > br.size {
-		return fmt.Errorf("seek position %d out of bounds [0, %d]", offset, br.size)
-	}
-	br.offset = offset
-	return nil
-}
-
-// Skip advances the read position by the given number of bytes
-func (br *BinaryReader) Skip(bytes int) error {
-	newOffset := br.offset + bytes
-	if newOffset < 0 || newOffset > br.size {
-		return fmt.Errorf("skip would move position to %d, out of bounds [0, %d]", newOffset, br.size)
-	}
-	br.offset = newOffset
-	return nil
-}
-
-// ReadBytes reads the specified number of bytes and advances the position
-func (br *BinaryReader) ReadBytes(count int) ([]byte, error) {
-	if count < 0 {
-		return nil, fmt.Errorf("cannot read negative number of bytes: %d", count)
-	}
-
-	if br.offset+count > br.size {
-		return nil, fmt.Errorf("cannot read %d bytes from position %d: not enough data", count, br.offset)
-	}
-
-	result := make([]byte, count)
-	copy(result, br.data[br.offset:br.offset+count])
-	br.offset += count
-
-	return result, nil
-}
-
-// PeekBytes reads bytes without advancing the position
-func (br *BinaryReader) PeekBytes(count int) ([]byte, error) {
-	if count < 0 {
-		return nil, fmt.Errorf("cannot peek negative number of bytes: %d", count)
-	}
-
-	if br.offset+count > br.size {
-		return nil, fmt.Errorf("cannot peek %d bytes from position %d: not enough data", count, br.offset)
-	}
-
-	result := make([]byte, count)
-	copy(result, br.data[br.offset:br.offset+count])
-
-	return result, nil
-}
-
-// ReadUint8 reads a single byte as uint8
-func (br *BinaryReader) ReadUint8() (uint8, error) {
-	if br.offset >= br.size {
-		return 0, io.EOF
-	}
-
-	value := br.data[br.offset]
-	br.offset++
-	return value, nil
-}
-
-// ReadUint16 reads a 16-bit unsigned integer in little-endian format
-func (br *BinaryReader) ReadUint16() (uint16, error) {
-	if br.offset+2 > br.size {
-		return 0, fmt.Errorf("cannot read uint16 from position %d: not enough data", br.offset)
-	}
-
-	value := binary.LittleEndian.Uint16(br.data[br.offset:])
-	br.offset += 2
-	return value, nil
-}
-
-// ReadUint32 reads a 32-bit unsigned integer in little-endian format
-func (br *BinaryReader) ReadUint32() (uint32, error) {
-	if br.offset+4 > br.size {
-		return 0, fmt.Errorf("cannot read uint32 from position %d: not enough data", br.offset)
-	}
-
-	value := binary.LittleEndian.Uint32(br.data[br.offset:])
-	br.offset += 4
-	return value, nil
-}
-
-// ReadUint64 reads a 64-bit unsigned integer in little-endian format
-func (br *BinaryReader) ReadUint64() (uint64, error) {
-	if br.offset+8 > br.size {
-		return 0, fmt.Errorf("cannot read uint64 from position %d: not enough data", br.offset)
-	}
-
-	value := binary.LittleEndian.Uint64(br.data[br.offset:])
-	br.offset += 8
-	return value, nil
-}
-
-// ReadInt16 reads a 16-bit signed integer in little-endian format
-func (br *BinaryReader) ReadInt16() (int16, error) {
-	value, err := br.ReadUint16()
-	return int16(value), err
-}
-
-// ReadInt32 reads a 32-bit signed integer in little-endian format
-func (br *BinaryReader) ReadInt32() (int32, error) {
-	value, err := br.ReadUint32()
-	return int32(value), err
-}
-
-// ReadInt64 reads a 64-bit signed integer in little-endian format
-func (br *BinaryReader) ReadInt64() (int64, error) {
-	value, err := br.ReadUint64()
-	return int64(value), err
-}
-
-// ReadFloat32 reads a 32-bit float in little-endian format
-func (br *BinaryReader) ReadFloat32() (float32, error) {
-	if br.offset+4 > br.size {
-		return 0, fmt.Errorf("cannot read float32 from position %d: not enough data", br.offset)
-	}
-
-	bits := binary.LittleEndian.Uint32(br.data[br.offset:])
-	value := *(*float32)(unsafe.Pointer(&bits))
-	br.offset += 4
-	return value, nil
-}
-
-// ReadFloat64 reads a 64-bit float in little-endian format
-func (br *BinaryReader) ReadFloat64() (float64, error) {
-	if br.offset+8 > br.size {
-		return 0, fmt.Errorf("cannot read float64 from position %d: not enough data", br.offset)
-	}
-
-	bits := binary.LittleEndian.Uint64(br.data[br.offset:])
-	value := *(*float64)(unsafe.Pointer(&bits))
-	br.offset += 8
-	return value, nil
-}
-
-// ReadBool reads a boolean value (single byte, 0 = false, non-zero = true)
-func (br *BinaryReader) ReadBool() (bool, error) {
-	value, err := br.ReadUint8()
-	return value != 0, err
-}
-
-// ReadNullableUint32 reads a 32-bit unsigned integer that may be null (0xfefe_fefe)
-func (br *BinaryReader) ReadNullableUint32() (*uint32, error) {
-	value, err := br.ReadUint32()
-	if err != nil {
-		return nil, err
-	}
-
-	if value == NullRowSentinel {
-		return nil, nil
-	}
-
-	return &value, nil
-}
-
-// StringReader provides utilities for reading strings from DAT dynamic data
-type StringReader struct {
-	data []byte
-}
-
-// NewStringReader creates a new string reader for dynamic data
-func NewStringReader(dynamicData []byte) *StringReader {
-	return &StringReader{
-		data: dynamicData,
-	}
-}
-
-// ReadUTF16String reads a null-terminated UTF-16 string from the given offset
-func (sr *StringReader) ReadUTF16String(offset uint64) (string, error) {
+// ReadUTF16String reads a null-terminated UTF-16 string from the given offset in data
+func ReadUTF16String(data []byte, offset uint64) (string, error) {
 	if offset < 8 {
 		return "", fmt.Errorf("string offset %d is too small (minimum 8)", offset)
 	}
 
-	if offset >= uint64(len(sr.data)) {
-		return "", fmt.Errorf("string offset %d exceeds data size %d", offset, len(sr.data))
+	if offset >= uint64(len(data)) {
+		return "", fmt.Errorf("string offset %d exceeds data size %d", offset, len(data))
 	}
 
 	// Read UTF-16 code units until null terminator
-	data := sr.data[offset:]
+	stringData := data[offset:]
 	var codeUnits []uint16
 
-	for i := 0; i < len(data)-1; i += 2 {
+	for i := 0; i < len(stringData)-1; i += 2 {
 		// Read 16-bit code unit in little-endian
-		codeUnit := binary.LittleEndian.Uint16(data[i:])
+		codeUnit := binary.LittleEndian.Uint16(stringData[i:])
 
 		// Stop at null terminator
 		if codeUnit == 0 {
@@ -240,23 +39,23 @@ func (sr *StringReader) ReadUTF16String(offset uint64) (string, error) {
 	return string(runes), nil
 }
 
-// ReadUTF32String reads a null-terminated UTF-32 string from the given offset
-func (sr *StringReader) ReadUTF32String(offset uint64) (string, error) {
+// ReadUTF32String reads a null-terminated UTF-32 string from the given offset in data
+func ReadUTF32String(data []byte, offset uint64) (string, error) {
 	if offset < 8 {
 		return "", fmt.Errorf("string offset %d is too small (minimum 8)", offset)
 	}
 
-	if offset >= uint64(len(sr.data)) {
-		return "", fmt.Errorf("string offset %d exceeds data size %d", offset, len(sr.data))
+	if offset >= uint64(len(data)) {
+		return "", fmt.Errorf("string offset %d exceeds data size %d", offset, len(data))
 	}
 
 	// Read UTF-32 runes until null terminator
-	data := sr.data[offset:]
+	stringData := data[offset:]
 	var runes []rune
 
-	for i := 0; i < len(data)-3; i += 4 {
+	for i := 0; i < len(stringData)-3; i += 4 {
 		// Read 32-bit rune in little-endian
-		runeValue := binary.LittleEndian.Uint32(data[i:])
+		runeValue := binary.LittleEndian.Uint32(stringData[i:])
 
 		// Stop at null terminator
 		if runeValue == 0 {
@@ -276,15 +75,13 @@ func (sr *StringReader) ReadUTF32String(offset uint64) (string, error) {
 
 // ArrayReader provides utilities for reading arrays from DAT dynamic data
 type ArrayReader struct {
-	data         []byte
-	stringReader *StringReader
+	data []byte
 }
 
 // NewArrayReader creates a new array reader for dynamic data
 func NewArrayReader(dynamicData []byte) *ArrayReader {
 	return &ArrayReader{
-		data:         dynamicData,
-		stringReader: NewStringReader(dynamicData),
+		data: dynamicData,
 	}
 }
 
@@ -378,7 +175,7 @@ func (ar *ArrayReader) readStringArray(data []byte, count uint64) ([]string, err
 		offsetData := data[i*8 : (i+1)*8]
 		offset := binary.LittleEndian.Uint64(offsetData)
 
-		str, err := ar.stringReader.ReadUTF16String(offset)
+		str, err := ReadUTF16String(ar.data, offset)
 		if err != nil {
 			return nil, fmt.Errorf("reading string at index %d: %w", i, err)
 		}
