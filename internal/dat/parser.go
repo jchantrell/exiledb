@@ -24,7 +24,7 @@ type Parser interface {
 	ReadField(data []byte, column *TableColumn, dynamicData []byte) (interface{}, error)
 
 	// ReadString reads a UTF-16 string from the dynamic data section
-	ReadString(dynamicData []byte, offset uint64) (string, error)
+	ReadString(dynamicData []byte, offset uint64, state ...*parseState) (string, error)
 
 	// ReadArray reads an array of values from the dynamic data section
 	ReadArray(dynamicData []byte, offset uint64, count uint64, elementType FieldType) (interface{}, error)
@@ -669,7 +669,7 @@ func (p *DATParser) readScalarFieldWithState(data []byte, column *TableColumn, d
 			return "", nil // Return empty string for NULL
 		}
 
-		return p.readStringWithState(dynamicData, uint64(offset), state)
+		return p.ReadString(dynamicData, uint64(offset), state)
 
 	case TypeRow, TypeForeignRow, TypeEnumRow:
 		if len(data) < 4 {
@@ -803,7 +803,7 @@ func (p *DATParser) readArrayFieldWithState(data []byte, column *TableColumn, dy
 }
 
 // ReadString implements the Parser interface for reading UTF-16 strings
-func (p *DATParser) ReadString(dynamicData []byte, offset uint64) (string, error) {
+func (p *DATParser) ReadString(dynamicData []byte, offset uint64, state ...*parseState) (string, error) {
 	// Offset 0 means empty string in DAT files
 	if offset == 0 {
 		return "", nil
@@ -830,13 +830,23 @@ func (p *DATParser) ReadString(dynamicData []byte, offset uint64) (string, error
 		return "", fmt.Errorf("string offset %d exceeds dynamic data size %d", offset, len(dynamicData))
 	}
 
+	// Track offset usage and validate sequential access if state is provided
+	if len(state) > 0 && state[0] != nil {
+		err := p.trackOffsetUsage(state[0], int(offset), "string")
+		if err != nil {
+			return "", err
+		}
+	}
+
 	// Read UTF-16 string until null terminator
 	data := dynamicData[offset:]
 	var result []uint16
+	bytesRead := 0
 
 	for i := 0; i < len(data)-1; i += 2 {
 		ch := binary.LittleEndian.Uint16(data[i:])
 		if ch == 0 {
+			bytesRead = i + 2 // Include null terminator
 			break
 		}
 		result = append(result, ch)
@@ -845,6 +855,11 @@ func (p *DATParser) ReadString(dynamicData []byte, offset uint64) (string, error
 		if len(result)*2 > p.options.MaxStringLength {
 			return "", fmt.Errorf("string exceeds maximum length %d", p.options.MaxStringLength)
 		}
+	}
+
+	// Update offset tracking if state is provided
+	if len(state) > 0 && state[0] != nil {
+		p.updateLastOffset(state[0], int(offset), bytesRead)
 	}
 
 	// Convert UTF-16 to Go string
@@ -1045,79 +1060,6 @@ func (p *DATParser) readTypedArray(data []byte, count uint64, elementType FieldT
 	}
 }
 
-// readStringWithState reads a UTF-16 string with offset tracking
-func (p *DATParser) readStringWithState(dynamicData []byte, offset uint64, state *parseState) (string, error) {
-	// Offset 0 means empty string in DAT files
-	if offset == 0 {
-		return "", nil
-	}
-
-	// Handle sentinel values indicating null strings (consistent with array handling)
-	const (
-		SentinelValue32 = 0xFEFEFEFE
-		SentinelValue64 = 0xFEFEFEFEFEFEFEFE
-	)
-
-	// Check for sentinel values indicating null/empty strings
-	// Note: Even in 64-bit format, offsets are read as 32-bit values, so we need to check both
-	if offset == SentinelValue32 || (p.width == Width64 && offset == SentinelValue64) {
-		return "", nil
-	}
-
-	// Very small offsets (1-7) are likely padding or special values, treat as empty
-	if offset < 8 {
-		return "", nil
-	}
-
-	if offset >= uint64(len(dynamicData)) {
-		return "", fmt.Errorf("string offset %d exceeds dynamic data size %d", offset, len(dynamicData))
-	}
-
-	// Track offset usage and validate sequential access
-	err := p.trackOffsetUsage(state, int(offset), "string")
-	if err != nil {
-		return "", err
-	}
-
-	// Read UTF-16 string until null terminator
-	data := dynamicData[offset:]
-	var result []uint16
-	bytesRead := 0
-
-	for i := 0; i < len(data)-1; i += 2 {
-		ch := binary.LittleEndian.Uint16(data[i:])
-		if ch == 0 {
-			bytesRead = i + 2 // Include null terminator
-			break
-		}
-		result = append(result, ch)
-
-		// Prevent excessive memory usage
-		if len(result)*2 > p.options.MaxStringLength {
-			return "", fmt.Errorf("string exceeds maximum length %d", p.options.MaxStringLength)
-		}
-	}
-
-	// Update offset tracking
-	p.updateLastOffset(state, int(offset), bytesRead)
-
-	// Convert UTF-16 to Go string
-	runes := make([]rune, 0, len(result))
-	for i := 0; i < len(result); i++ {
-		if result[i] >= 0xD800 && result[i] <= 0xDBFF && i+1 < len(result) {
-			// High surrogate pair
-			high := uint32(result[i] - 0xD800)
-			low := uint32(result[i+1] - 0xDC00)
-			codepoint := 0x10000 + (high << 10) + low
-			runes = append(runes, rune(codepoint))
-			i++ // Skip low surrogate
-		} else {
-			runes = append(runes, rune(result[i]))
-		}
-	}
-
-	return string(runes), nil
-}
 
 // readArrayWithState reads an array with offset tracking
 func (p *DATParser) readArrayWithState(dynamicData []byte, offset uint64, count uint64, elementType FieldType, state *parseState) (interface{}, error) {
@@ -1238,7 +1180,7 @@ func (p *DATParser) readStringArrayWithState(data []byte, dynamicData []byte, co
 		offsetData := data[i*4 : (i+1)*4]
 		offset := uint64(binary.LittleEndian.Uint32(offsetData))
 
-		str, err := p.readStringWithState(dynamicData, offset, state)
+		str, err := p.ReadString(dynamicData, offset, state)
 		if err != nil {
 			return nil, 0, fmt.Errorf("reading string at index %d: %w", i, err)
 		}
