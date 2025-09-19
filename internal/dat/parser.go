@@ -27,7 +27,7 @@ type Parser interface {
 	ReadString(dynamicData []byte, offset uint64, state ...*parseState) (string, error)
 
 	// ReadArray reads an array of values from the dynamic data section
-	ReadArray(dynamicData []byte, offset uint64, count uint64, elementType FieldType) (interface{}, error)
+	ReadArray(dynamicData []byte, offset uint64, count uint64, elementType FieldType, state ...*parseState) (interface{}, error)
 }
 
 // ParsedTable represents a completely parsed DAT table with all rows and metadata
@@ -799,7 +799,7 @@ func (p *DATParser) readArrayFieldWithState(data []byte, column *TableColumn, dy
 		return nil, err
 	}
 
-	return p.readArrayWithState(dynamicData, offset, count, column.Type, state)
+	return p.ReadArray(dynamicData, offset, count, column.Type, state)
 }
 
 // ReadString implements the Parser interface for reading UTF-16 strings
@@ -881,7 +881,7 @@ func (p *DATParser) ReadString(dynamicData []byte, offset uint64, state ...*pars
 }
 
 // ReadArray implements the Parser interface for reading arrays
-func (p *DATParser) ReadArray(dynamicData []byte, offset uint64, count uint64, elementType FieldType) (interface{}, error) {
+func (p *DATParser) ReadArray(dynamicData []byte, offset uint64, count uint64, elementType FieldType, state ...*parseState) (interface{}, error) {
 	// Handle empty arrays (offset 0 or count 0)
 	if offset == 0 || count == 0 {
 		return p.createEmptyArray(elementType)
@@ -909,15 +909,44 @@ func (p *DATParser) ReadArray(dynamicData []byte, offset uint64, count uint64, e
 	}
 
 	if count == 0 {
+		// If state is provided and count is 0, track minimal usage
+		if len(state) > 0 && state[0] != nil {
+			err := p.trackOffsetUsage(state[0], int(offset), fmt.Sprintf("array[%d]", count))
+			if err != nil {
+				return nil, err
+			}
+		}
 		return p.createEmptyArray(elementType)
 	}
 
 	data := dynamicData[offset:]
 	elementSize := elementType.Size()
 
+	// For .datc64 files, foreign key arrays use 16-byte slots when state tracking is enabled
+	if len(state) > 0 && state[0] != nil && p.width == Width64 && (elementType == TypeForeignRow || elementType == TypeEnumRow) {
+		elementSize = 16
+	}
+
+	// Track offset usage and validate sequential access if state is provided
+	if len(state) > 0 && state[0] != nil {
+		err := p.trackOffsetUsage(state[0], int(offset), fmt.Sprintf("array[%d]", count))
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	if elementType == TypeString {
 		// String arrays are arrays of offsets, not the strings themselves
-		return p.readStringArray(data, dynamicData, count)
+		if len(state) > 0 && state[0] != nil {
+			result, bytesRead, err := p.readStringArrayWithState(data, dynamicData, count, state[0])
+			if err != nil {
+				return nil, err
+			}
+			p.updateLastOffset(state[0], int(offset), bytesRead)
+			return result, nil
+		} else {
+			return p.readStringArray(data, dynamicData, count)
+		}
 	}
 
 	totalSize := int(count) * elementSize
@@ -925,7 +954,17 @@ func (p *DATParser) ReadArray(dynamicData []byte, offset uint64, count uint64, e
 		return nil, fmt.Errorf("array data exceeds available data: need %d bytes, have %d", totalSize, len(data))
 	}
 
-	return p.readTypedArray(data[:totalSize], count, elementType)
+	result, err := p.readTypedArray(data[:totalSize], count, elementType)
+	if err != nil {
+		return nil, err
+	}
+
+	// Update offset tracking if state is provided
+	if len(state) > 0 && state[0] != nil {
+		p.updateLastOffset(state[0], int(offset), totalSize)
+	}
+
+	return result, nil
 }
 
 // readStringArray reads an array of string offsets and returns the actual strings
@@ -1061,109 +1100,6 @@ func (p *DATParser) readTypedArray(data []byte, count uint64, elementType FieldT
 }
 
 
-// readArrayWithState reads an array with offset tracking
-func (p *DATParser) readArrayWithState(dynamicData []byte, offset uint64, count uint64, elementType FieldType, state *parseState) (interface{}, error) {
-	// Handle empty arrays (offset 0 or count 0)
-	if offset == 0 || count == 0 {
-		return p.createEmptyArray(elementType)
-	}
-
-	// Handle sentinel values indicating null/empty arrays
-	// poe-dat-viewer uses 0xFEFEFEFE (32-bit) and 0xFEFEFEFEFEFEFEFE (64-bit) as null sentinels
-	const (
-		SentinelValue32 = 0xFEFEFEFE
-		SentinelValue64 = 0xFEFEFEFEFEFEFEFE
-	)
-
-	// Check for sentinel values indicating null/empty arrays
-	// Note: Even in 64-bit format, offsets are read as 32-bit values, so we need to check both
-	if offset == SentinelValue32 || (p.width == Width64 && offset == SentinelValue64) {
-		return p.createEmptyArray(elementType)
-	}
-
-	if offset < 8 {
-		return nil, fmt.Errorf("array offset %d is too small (minimum 8)", offset)
-	}
-
-	if offset >= uint64(len(dynamicData)) {
-		return nil, fmt.Errorf("array offset %d exceeds dynamic data size %d", offset, len(dynamicData))
-	}
-
-	if count == 0 {
-		// Empty array - track minimal usage
-		err := p.trackOffsetUsage(state, int(offset), fmt.Sprintf("array[%d]", count))
-		if err != nil {
-			return nil, err
-		}
-
-		// Return empty slice of appropriate type
-		switch elementType {
-		case TypeBool:
-			return []bool{}, nil
-		case TypeString:
-			return []string{}, nil
-		case TypeInt16:
-			return []int16{}, nil
-		case TypeUint16:
-			return []uint16{}, nil
-		case TypeInt32:
-			return []int32{}, nil
-		case TypeUint32:
-			return []uint32{}, nil
-		case TypeInt64:
-			return []int64{}, nil
-		case TypeUint64:
-			return []uint64{}, nil
-		case TypeFloat32:
-			return []float32{}, nil
-		case TypeFloat64:
-			return []float64{}, nil
-		case TypeRow, TypeForeignRow, TypeEnumRow:
-			return []*uint32{}, nil
-		default:
-			return []interface{}{}, nil
-		}
-	}
-
-	data := dynamicData[offset:]
-	elementSize := elementType.Size()
-
-	// For .datc64 files, foreign key arrays use 16-byte slots
-	if p.width == Width64 && (elementType == TypeForeignRow || elementType == TypeEnumRow) {
-		elementSize = 16
-	}
-
-	// Track offset usage and validate sequential access
-	err := p.trackOffsetUsage(state, int(offset), fmt.Sprintf("array[%d]", count))
-	if err != nil {
-		return nil, err
-	}
-
-	if elementType == TypeString {
-		// String arrays are arrays of offsets, not the strings themselves
-		result, bytesRead, err := p.readStringArrayWithState(data, dynamicData, count, state)
-		if err != nil {
-			return nil, err
-		}
-		p.updateLastOffset(state, int(offset), bytesRead)
-		return result, nil
-	}
-
-	totalSize := int(count) * elementSize
-	if totalSize > len(data) {
-		return nil, fmt.Errorf("array data exceeds available data: need %d bytes, have %d", totalSize, len(data))
-	}
-
-	result, err := p.readTypedArray(data[:totalSize], count, elementType)
-	if err != nil {
-		return nil, err
-	}
-
-	// Update offset tracking
-	p.updateLastOffset(state, int(offset), totalSize)
-
-	return result, nil
-}
 
 // readStringArrayWithState reads an array of string offsets with state tracking
 func (p *DATParser) readStringArrayWithState(data []byte, dynamicData []byte, count uint64, state *parseState) ([]string, int, error) {
