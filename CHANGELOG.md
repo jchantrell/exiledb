@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.1.0](https://github.com/jchantrell/exiledb/compare/v1.0.6...v1.1.0) (2025-09-19)
+
+
+### Features
+
+* more clean up ([30735c4](https://github.com/jchantrell/exiledb/commit/30735c4e1a60b4d31d7bdd3f72355b60045eba5f))
+* update progress bar layout ([1be8fb2](https://github.com/jchantrell/exiledb/commit/1be8fb20e32e323bb82498f3cdb069ff56440198))
+
+
+### Bug Fixes
+
+* fetch files for all languages ([1f08d4d](https://github.com/jchantrell/exiledb/commit/1f08d4d759aba1e58c057587867cda84d34b228e))
+
 ## [1.0.6](https://github.com/jchantrell/exiledb/compare/v1.0.5...v1.0.6) (2025-09-18)
 
 
