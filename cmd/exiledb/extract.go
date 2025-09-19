@@ -193,8 +193,15 @@ extracts DAT files into a queryable SQLite database.`,
 					continue
 				}
 
-				parserOptions := &dat.ParserOptions{}
-				parser := dat.NewDATParser(parserOptions)
+				parser := dat.NewDATParser(
+					&dat.ParserOptions{
+						StrictMode:                false,
+						ValidateReferences:        false,
+						MaxStringLength:           65536,
+						MaxArrayCount:             65536,
+						ArraySizeWarningThreshold: 1000,
+					},
+				)
 
 				datReader := strings.NewReader(string(datData))
 				parsedTable, err := parser.ParseDATFileWithFilename(context.Background(), datReader, path, &datSchema)
