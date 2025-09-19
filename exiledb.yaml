@@ -1,12 +1,12 @@
 patch: "4.3.0.4"
 database: "exile.db"
-all_tables: false
 log_format: text
 log_level: info
 languages:
   - English
   - French
   - German
+  - Russian
 tables:
   - BaseItemTypes
   - Tags

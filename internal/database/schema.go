@@ -12,6 +12,9 @@ import (
 	"github.com/jchantrell/exiledb/internal/utils"
 )
 
+// SchemaProgressCallback is called during schema creation to report progress
+type SchemaProgressCallback func(current int, total int, description string)
+
 // DDLManager handles schema creation with bulk DDL execution
 type DDLManager struct {
 	db             *Database
@@ -266,7 +269,7 @@ type DDLRequest struct {
 }
 
 // CreateSchemas creates all schemas using bulk execution for optimal performance
-func (dm *DDLManager) CreateSchemas(ctx context.Context, tables []dat.TableSchema) error {
+func (dm *DDLManager) CreateSchemas(ctx context.Context, tables []dat.TableSchema, progressCallback SchemaProgressCallback) error {
 	if len(tables) == 0 {
 		return nil
 	}
@@ -278,7 +281,7 @@ func (dm *DDLManager) CreateSchemas(ctx context.Context, tables []dat.TableSchem
 	}
 
 	// Phase 2: Execute DDL in controlled batches to avoid SQLite contention
-	if err := dm.executeDDLBulk(ctx, ddlRequests); err != nil {
+	if err := dm.executeDDLBulk(ctx, ddlRequests, progressCallback); err != nil {
 		return fmt.Errorf("executing DDL: %w", err)
 	}
 
@@ -377,7 +380,7 @@ func (dm *DDLManager) generateTableDDLRequests(table dat.TableSchema) ([]DDLRequ
 		Type:        "table",
 		DDL:         tableDDL,
 		TableName:   tableName,
-		Description: fmt.Sprintf("Main table: %s", tableName),
+		Description: table.Name,
 	})
 
 	// Generate junction table DDL
@@ -397,7 +400,7 @@ func (dm *DDLManager) generateTableDDLRequests(table dat.TableSchema) ([]DDLRequ
 			Type:        "junction",
 			DDL:         junctionDDL,
 			TableName:   junctionTableName,
-			Description: fmt.Sprintf("Junction table: %s", junctionTableName),
+			Description: fmt.Sprintf("%s.%s", table.Name, *column.Name),
 		})
 	}
 
@@ -405,35 +408,38 @@ func (dm *DDLManager) generateTableDDLRequests(table dat.TableSchema) ([]DDLRequ
 }
 
 // executeDDLBulk executes DDL statements in bulk transactions
-func (dm *DDLManager) executeDDLBulk(ctx context.Context, ddlRequests []DDLRequest) error {
+func (dm *DDLManager) executeDDLBulk(ctx context.Context, ddlRequests []DDLRequest, progressCallback SchemaProgressCallback) error {
 	// Separate main tables and junction tables to ensure main tables are created first
-	var mainTableDDL []string
-	var junctionTableDDL []string
+	var mainTableRequests []DDLRequest
+	var junctionTableRequests []DDLRequest
 
 	for _, req := range ddlRequests {
 		if req.Type == "table" {
-			mainTableDDL = append(mainTableDDL, req.DDL)
+			mainTableRequests = append(mainTableRequests, req)
 		} else {
-			junctionTableDDL = append(junctionTableDDL, req.DDL)
+			junctionTableRequests = append(junctionTableRequests, req)
 		}
 	}
 
+	totalTables := len(mainTableRequests) + len(junctionTableRequests)
+	currentProgress := 0
+
 	// Execute main tables in single transaction
-	if err := dm.executeDDLTransaction(ctx, mainTableDDL, "main tables"); err != nil {
+	if err := dm.executeDDLTransaction(ctx, mainTableRequests, "main tables", progressCallback, &currentProgress, totalTables); err != nil {
 		return fmt.Errorf("executing main tables: %w", err)
 	}
 
 	// Execute junction tables in single transaction
-	if err := dm.executeDDLTransaction(ctx, junctionTableDDL, "junction tables"); err != nil {
+	if err := dm.executeDDLTransaction(ctx, junctionTableRequests, "junction tables", progressCallback, &currentProgress, totalTables); err != nil {
 		return fmt.Errorf("executing junction tables: %w", err)
 	}
 
 	return nil
 }
 
-// executeDDLTransaction executes DDL statements in a single transaction for optimal performance
-func (dm *DDLManager) executeDDLTransaction(ctx context.Context, ddlStatements []string, description string) error {
-	if len(ddlStatements) == 0 {
+// executeDDLTransaction executes DDL statements in a single transaction with progress reporting
+func (dm *DDLManager) executeDDLTransaction(ctx context.Context, ddlRequests []DDLRequest, description string, progressCallback SchemaProgressCallback, currentProgress *int, totalTables int) error {
+	if len(ddlRequests) == 0 {
 		return nil
 	}
 
@@ -445,9 +451,15 @@ func (dm *DDLManager) executeDDLTransaction(ctx context.Context, ddlStatements [
 	defer tx.Rollback() // Safe to call even after commit
 
 	// Execute all DDL statements in the transaction
-	for i, ddl := range ddlStatements {
-		if _, err := tx.ExecContext(ctx, ddl); err != nil {
-			return fmt.Errorf("executing DDL statement %d in %s: %w", i+1, description, err)
+	for _, req := range ddlRequests {
+		if _, err := tx.ExecContext(ctx, req.DDL); err != nil {
+			return fmt.Errorf("executing DDL for %s in %s: %w", req.TableName, description, err)
+		}
+
+		// Update progress after each table schema is created
+		if progressCallback != nil {
+			*currentProgress++
+			progressCallback(*currentProgress, totalTables, req.Description)
 		}
 	}
 

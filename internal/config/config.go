@@ -10,7 +10,6 @@ import (
 type Config struct {
 	Patch     string   `mapstructure:"patch"`
 	Database  string   `mapstructure:"database"`
-	AllTables bool     `mapstructure:"all_tables"`
 	Tables    []string `mapstructure:"tables"`
 	Languages []string `mapstructure:"languages"`
 	LogLevel  string   `mapstructure:"log_level"`
@@ -22,7 +21,6 @@ func Load(cfgFile string) (*Config, error) {
 	// Set defaults
 	viper.SetDefault("patch", "3.26.0.11")
 	viper.SetDefault("database", "exile.db")
-	viper.SetDefault("all_tables", true)
 	viper.SetDefault("languages", []string{"English"})
 	viper.SetDefault("log_level", "info")
 	viper.SetDefault("log_format", "text")

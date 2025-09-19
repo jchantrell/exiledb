@@ -10,128 +10,95 @@ import (
 	"github.com/jchantrell/exiledb/internal/cache"
 )
 
-// DiscoverRequiredBundles parses the index file to find which bundles contain the DAT files needed
-// based on the specified configuration (languages, tables, allTables flag).
-func DiscoverRequiredBundles(cache *cache.Cache, patch string, languages []string, tables []string, allTables bool) ([]string, error) {
+type BytesReaderAt struct {
+	data []byte
+}
+
+var ext = ".datc64"
+
+func DiscoverRequiredBundles(cache *cache.Cache, patch string, languages []string, tables []string) ([]string, error) {
 	indexPath := cache.GetIndexPath(patch)
 
-	// Read the index file
 	slog.Info("Reading index file", "path", indexPath)
 	indexData, err := os.ReadFile(indexPath)
 	if err != nil {
 		return nil, fmt.Errorf("reading index file: %w", err)
 	}
 
-	// First, decompress the index bundle using the same logic as regular bundles
-	// The _.index.bin file is a compressed bundle that needs to be decompressed first
 	decompressedIndexData, err := DecompressIndexBundle(indexData)
 	if err != nil {
 		return nil, fmt.Errorf("decompressing index bundle: %w", err)
 	}
 
-	// Parse the decompressed index bundle
 	index, err := LoadIndex(decompressedIndexData)
 	if err != nil {
 		return nil, fmt.Errorf("parsing index bundle: %w", err)
 	}
 
-	// Build list of required bundles based on configuration
-	bundleSet := make(map[string]bool)
+	bundleSet := GetBundleSet(index, tables, languages)
 
-	// Always include the index bundle
-	bundleSet["_.index.bin"] = true
-
-	if allTables {
-
-		// Get all files from the index and find those in the data/ directory with .datc64 extension
-		// This approach mirrors the specific tables mode but discovers all DAT files automatically
-		allFiles := index.ListFiles()
-		datFileCount := 0
-		for _, filePath := range allFiles {
-			// Look for .datc64 files in the data/ directory
-			// Note: paths in index are already lowercase since PoE version 3.21.2+
-			if strings.HasPrefix(filePath, "data/") && strings.HasSuffix(filePath, ".datc64") {
-				if loc, err := index.GetFileInfo(filePath); err == nil {
-					bundleSet[loc.BundleName] = true
-					datFileCount++
-				}
-			}
-		}
-	} else if len(tables) > 0 {
-		// Specific tables mode: download only bundles containing requested tables
-		for _, table := range tables {
-			// Check for .datc64 files with lowercase data/ and table name
-			lowerTableName := strings.ToLower(table)
-			for _, ext := range []string{".datc64"} {
-				// Check English version first
-				path := fmt.Sprintf("data/%s%s", lowerTableName, ext)
-				if loc, err := index.GetFileInfo(path); err == nil {
-					bundleSet[loc.BundleName] = true
-				} else {
-					slog.Warn("Table file not found", "table", table, "path", path, "error", err)
-				}
-
-				// Check language-specific versions for all configured languages
-				for _, language := range languages {
-					if language == "English" {
-						continue // Already checked above
-					}
-					langPath := fmt.Sprintf("data/%s/%s%s", strings.ToLower(language), lowerTableName, ext)
-					if loc, err := index.GetFileInfo(langPath); err == nil {
-						bundleSet[loc.BundleName] = true
-					}
-				}
-			}
-		}
-	} else {
-		// Fallback mode: no specific tables requested, get all bundles containing DAT files
-
-		// Same logic as AllTables mode - find all DAT files and their bundles
-		allFiles := index.ListFiles()
-		datFileCount := 0
-		for _, filePath := range allFiles {
-			// Look for .datc64 files in the data/ directory
-			// Note: paths in index are already lowercase since PoE version 3.21.2+
-			if strings.HasPrefix(filePath, "data/") && strings.HasSuffix(filePath, ".datc64") {
-				if loc, err := index.GetFileInfo(filePath); err == nil {
-					bundleSet[loc.BundleName] = true
-					datFileCount++
-				}
-			}
-		}
-	}
-
-	// Convert set to slice
 	var candidatePaths []string
 	for bundle := range bundleSet {
 		candidatePaths = append(candidatePaths, bundle)
 	}
 
-	// candidatePaths already contains the bundle names we need
 	return candidatePaths, nil
 }
 
-// DecompressIndexBundle decompresses the index bundle using the bundle system
 func DecompressIndexBundle(data []byte) ([]byte, error) {
-	// Create a reader for the compressed data
-	reader := &bytesReaderAt{data: data}
+	reader := &BytesReaderAt{data: data}
 
-	// Open as bundle
 	b, err := OpenBundle(reader)
 	if err != nil {
 		return nil, fmt.Errorf("opening bundle: %w", err)
 	}
 
-	// Read entire contents
 	return b.Read()
 }
 
-// bytesReaderAt implements io.ReaderAt for a byte slice
-type bytesReaderAt struct {
-	data []byte
+func GetBundleSet(index Index, tables, languages []string) map[string]bool {
+	bundleSet := make(map[string]bool)
+	bundleSet["_.index.bin"] = true
+
+	allFiles := index.ListFiles()
+	datFileCount := 0
+
+	if len(tables) > 0 {
+		for _, table := range tables {
+			lowerTableName := strings.ToLower(table)
+			path := fmt.Sprintf("data/%s%s", lowerTableName, ext)
+			if loc, err := index.GetFileInfo(path); err == nil {
+				bundleSet[loc.BundleName] = true
+			} else {
+				slog.Warn("Table file not found", "table", table, "path", path, "error", err)
+			}
+
+			for _, language := range languages {
+				if language == "English" {
+					continue
+				}
+				langPath := fmt.Sprintf("data/%s/%s%s", strings.ToLower(language), lowerTableName, ext)
+				if loc, err := index.GetFileInfo(langPath); err == nil {
+					bundleSet[loc.BundleName] = true
+				}
+			}
+		}
+
+	} else {
+		for _, filePath := range allFiles {
+			if strings.HasPrefix(filePath, "data/") && strings.HasSuffix(filePath, ext) {
+				if loc, err := index.GetFileInfo(filePath); err == nil {
+					bundleSet[loc.BundleName] = true
+					datFileCount++
+				}
+			}
+		}
+	}
+
+	return bundleSet
 }
 
-func (r *bytesReaderAt) ReadAt(p []byte, off int64) (int, error) {
+func (r *BytesReaderAt) ReadAt(p []byte, off int64) (int, error) {
 	if off < 0 || off >= int64(len(r.data)) {
 		return 0, io.EOF
 	}

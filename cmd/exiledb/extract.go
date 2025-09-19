@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -30,6 +29,7 @@ type ExtractionStats struct {
 
 var (
 	forceDownload bool
+	ext           = ".datc64"
 )
 
 var extractCmd = &cobra.Command{
@@ -41,36 +41,12 @@ extracts DAT files into a queryable SQLite database.`,
 		stats := &ExtractionStats{
 			StartTime: time.Now(),
 		}
-
 		var memStatsStart runtime.MemStats
 		runtime.ReadMemStats(&memStatsStart)
 
+		showProgress := !(noProgress || cfg.LogFormat == "json" || cfg.LogLevel == "debug")
+
 		slog.Info("Starting extract...", "languages", cfg.Languages)
-
-		cache := cache.CacheManager()
-
-		gameVersion, err := utils.ParseGameVersion(cfg.Patch)
-		if err != nil {
-			return fmt.Errorf("parsing game version: %w", err)
-		}
-
-		if err := cdn.DownloadIndex(cache, cfg.Patch, gameVersion, forceDownload); err != nil {
-			return fmt.Errorf("downloading index file: %w", err)
-		}
-
-		requiredBundles, err := bundle.DiscoverRequiredBundles(cache, cfg.Patch, cfg.Languages, cfg.Tables, cfg.AllTables)
-		if err != nil {
-			return fmt.Errorf("discovering required bundles: %w", err)
-		}
-
-		if len(requiredBundles) == 0 {
-			slog.Info("No bundles required for current configuration")
-			return nil
-		}
-
-		if err := cdn.DownloadBundles(cache, cfg.Patch, gameVersion, requiredBundles, forceDownload); err != nil {
-			return fmt.Errorf("downloading bundles: %w", err)
-		}
 
 		dbOptions := &database.DatabaseOptions{
 			Path: cfg.Database,
@@ -90,10 +66,32 @@ extracts DAT files into a queryable SQLite database.`,
 			return fmt.Errorf("database already contains tables")
 		}
 
-		cacheDir := filepath.Dir(cache.GetIndexPath(cfg.Patch))
-		cacheDir = filepath.Dir(cacheDir)
+		cache := cache.CacheManager()
 
-		bundleManager, err := bundle.NewManager(cacheDir, cfg.Patch)
+		gameVersion, err := utils.ParseGameVersion(cfg.Patch)
+		if err != nil {
+			return fmt.Errorf("parsing game version: %w", err)
+		}
+
+		if err := cdn.DownloadIndex(cache, cfg.Patch, gameVersion, forceDownload); err != nil {
+			return fmt.Errorf("downloading index file: %w", err)
+		}
+
+		requiredBundles, err := bundle.DiscoverRequiredBundles(cache, cfg.Patch, cfg.Languages, cfg.Tables)
+		if err != nil {
+			return fmt.Errorf("discovering required bundles: %w", err)
+		}
+
+		if len(requiredBundles) == 0 {
+			slog.Info("No bundles required for current configuration")
+			return nil
+		}
+
+		if err := cdn.DownloadBundles(cache, cfg.Patch, gameVersion, requiredBundles, forceDownload, showProgress); err != nil {
+			return fmt.Errorf("downloading bundles: %w", err)
+		}
+
+		bundleManager, err := bundle.NewManager(cache.GetCacheDir(), cfg.Patch)
 		if err != nil {
 			return fmt.Errorf("creating bundle manager: %w", err)
 		}
@@ -111,29 +109,41 @@ extracts DAT files into a queryable SQLite database.`,
 			return fmt.Errorf("getting valid tables for version %s: %w", cfg.Patch, err)
 		}
 
-		tableSchemas := getTableSchemas(validTables, cfg.AllTables, cfg.Tables)
+		datSchemas := getTableSchemas(validTables, cfg.Tables)
 
-		stats.TotalTables = len(tableSchemas)
-		processingStartTime := time.Now()
-
-		ddlManager := database.NewDDLManager(db)
-		slog.Info("Creating database schemas", "count", len(tableSchemas))
-		if err := ddlManager.CreateSchemas(context.Background(), tableSchemas); err != nil {
-			return fmt.Errorf("creating schemas: %w", err)
-		}
-
-		var tables []string
-		for _, table := range tableSchemas {
-			tables = append(tables, table.Name)
-		}
-
-		if len(tables) == 0 {
+		totalSchemas := len(datSchemas)
+		stats.TotalTables = totalSchemas
+		if totalSchemas == 0 {
 			slog.Info("No tables to process")
 			return nil
 		}
 
-		slog.Info("Processing tables", "count", len(tables))
+		totalTables := totalSchemas
+		for _, table := range datSchemas {
+			for _, column := range table.Columns {
+				if column.Name != nil && column.Array && column.References != nil {
+					totalTables++
+				}
+			}
+		}
 
+		processingStartTime := time.Now()
+		slog.Info("Creating database schemas", "count", totalTables)
+
+		schemaProgress := utils.NewProgress(stats.TotalTables, showProgress)
+		schemaProgressCallback := func(current int, total int, description string) {
+			schemaProgress.Update(current, description)
+		}
+
+		ddlManager := database.NewDDLManager(db)
+		if err := ddlManager.CreateSchemas(context.Background(), datSchemas, schemaProgressCallback); err != nil {
+			schemaProgress.Finish()
+			return fmt.Errorf("creating schemas: %w", err)
+		}
+
+		schemaProgress.Finish()
+
+		slog.Info("Inserting dat files", "count", totalSchemas)
 		bulkInsertOptions := &database.BulkInsertOptions{
 			BatchSize:                 1000,
 			MaxRetries:                3,
@@ -142,10 +152,9 @@ extracts DAT files into a queryable SQLite database.`,
 		}
 		bulkInserter := database.NewBulkInserter(db, bulkInsertOptions)
 
-		insertProgress := utils.NewProgress(len(tables), !(noProgress || cfg.LogFormat == "json" || cfg.LogLevel == "debug"))
-
+		insertProgress := utils.NewProgress(totalSchemas, showProgress)
 		processedCount := 0
-		for _, tableName := range tables {
+		for _, datSchema := range datSchemas {
 			select {
 			case <-context.Background().Done():
 				slog.Warn("Extraction canceled")
@@ -154,9 +163,9 @@ extracts DAT files into a queryable SQLite database.`,
 			}
 
 			processedCount++
-			insertProgress.Update(processedCount, tableName)
-			lowerTableName := strings.ToLower(tableName)
-			ext := ".datc64"
+			insertProgress.Update(processedCount, datSchema.Name)
+			lowerTableName := strings.ToLower(datSchema.Name)
+
 			for _, language := range cfg.Languages {
 				basePath := fmt.Sprintf("data/%s%s", lowerTableName, ext)
 				languagePath := fmt.Sprintf("data/%s/%s%s", strings.ToLower(language), lowerTableName, ext)
@@ -177,20 +186,11 @@ extracts DAT files into a queryable SQLite database.`,
 					path = basePath
 				}
 
-				slog.Debug("Processing DAT file", "path", path, "table", tableName)
+				slog.Debug("Processing DAT file", "path", path, "table", datSchema.Name)
 
 				datData, err := bundleManager.GetFile(path)
 				if err != nil {
-					slog.Error("Failed to get file from bundle", "path", path, "table", tableName, "error", err)
-					continue
-				}
-
-				tableSchema, err := schemaManager.GetTableSchemaForVersion(tableName, cfg.Patch)
-				if err != nil || tableSchema == nil {
-					slog.Debug("Skipping table - no schema found or not compatible with game version",
-						"table", tableName,
-						"version", cfg.Patch,
-						"error", err)
+					slog.Error("Failed to get file from bundle", "path", path, "table", datSchema.Name, "error", err)
 					continue
 				}
 
@@ -205,9 +205,9 @@ extracts DAT files into a queryable SQLite database.`,
 				parser := dat.NewDATParser(parserOptions)
 
 				datReader := strings.NewReader(string(datData))
-				parsedTable, err := parser.ParseDATFileWithFilename(context.Background(), datReader, path, tableSchema)
+				parsedTable, err := parser.ParseDATFileWithFilename(context.Background(), datReader, path, &datSchema)
 				if err != nil {
-					slog.Error("Failed to parse DAT file", "path", path, "table", tableName, "size_bytes", len(datData), "error", err)
+					slog.Error("Failed to parse DAT file", "path", path, "table", datSchema.Name, "size_bytes", len(datData), "error", err)
 					stats.ProcessingErrors++
 					continue
 				}
@@ -222,13 +222,13 @@ extracts DAT files into a queryable SQLite database.`,
 					}
 
 					tableData := &database.TableData{
-						Schema:   tableSchema,
+						Schema:   &datSchema,
 						Rows:     rowData,
 						Language: language,
 					}
 					if err := bulkInserter.InsertTableData(context.Background(), tableData); err != nil {
-						slog.Error("Database insert failed", "table", tableName, "error", err)
-						slog.Error("Failed to insert records", "table", tableName, "error", err)
+						slog.Error("Database insert failed", "table", datSchema.Name, "error", err)
+						slog.Error("Failed to insert records", "table", datSchema.Name, "error", err)
 						stats.DatabaseErrors++
 						continue
 					}
@@ -273,9 +273,8 @@ extracts DAT files into a queryable SQLite database.`,
 	},
 }
 
-func getTableSchemas(validTables []dat.TableSchema, allTables bool, configuredTables []string) []dat.TableSchema {
-	// If all_tables is true, return all valid tables
-	if allTables || len(configuredTables) == 0 {
+func getTableSchemas(validTables []dat.TableSchema, configuredTables []string) []dat.TableSchema {
+	if len(configuredTables) == 0 {
 		return validTables
 	}
 

@@ -16,7 +16,6 @@ var (
 
 	patch      string
 	dbPath     string
-	allTables  bool
 	tables     []string
 	languages  []string
 	logLevel   string
@@ -46,9 +45,6 @@ and processes them according to the latest schema to create a local database.`,
 		}
 		if cmd.Flags().Changed("database") {
 			cfg.Database = dbPath
-		}
-		if cmd.Flags().Changed("all-tables") {
-			cfg.AllTables = allTables
 		}
 		if cmd.Flags().Changed("tables") {
 			cfg.Tables = tables
@@ -114,7 +110,6 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is exiledb.yaml in pwd)")
 	rootCmd.PersistentFlags().StringVarP(&patch, "patch", "p", "", "patch version to use")
 	rootCmd.PersistentFlags().StringVarP(&dbPath, "database", "d", "", "database file path")
-	rootCmd.PersistentFlags().BoolVar(&allTables, "all-tables", false, "extract all available tables")
 	rootCmd.PersistentFlags().StringSliceVar(&tables, "tables", []string{}, "comma-separated list of tables to extract")
 	rootCmd.PersistentFlags().StringSliceVar(&languages, "languages", []string{"English"}, "comma-separated list of languages to extract")
 	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "", "log level (debug, info, warn, error)")
