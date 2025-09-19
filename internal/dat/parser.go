@@ -12,24 +12,6 @@ import (
 	"unsafe"
 )
 
-// Parser defines the interface for parsing DAT files
-type Parser interface {
-	// ParseDATFile parses a DAT file from the given reader using the provided schema
-	ParseDATFile(ctx context.Context, r io.Reader, schema *TableSchema) (*ParsedTable, error)
-
-	// ParseDATFileWithFilename parses a DAT file with width detection based on filename extension
-	ParseDATFileWithFilename(ctx context.Context, r io.Reader, filename string, schema *TableSchema) (*ParsedTable, error)
-
-	// ReadField reads a single field value from the DAT data
-	ReadField(data []byte, column *TableColumn, dynamicData []byte) (interface{}, error)
-
-	// ReadString reads a UTF-16 string from the dynamic data section
-	ReadString(dynamicData []byte, offset uint64, state ...*parseState) (string, error)
-
-	// ReadArray reads an array of values from the dynamic data section
-	ReadArray(dynamicData []byte, offset uint64, count uint64, elementType FieldType, state ...*parseState) (interface{}, error)
-}
-
 // ParsedTable represents a completely parsed DAT table with all rows and metadata
 type ParsedTable struct {
 	Schema   *TableSchema   `json:"schema"`   // Original table schema
@@ -53,7 +35,7 @@ type ParseMetadata struct {
 	MaxFieldsParsed int `json:"maxFieldsParsed"` // Maximum number of fields parsed in any row (for partial schema)
 }
 
-// DATParser implements the Parser interface for Path of Exile DAT files
+// DATParser parses Path of Exile DAT files
 type DATParser struct {
 	// Parser width (32 or 64 bit)
 	width ParserWidth
@@ -101,7 +83,7 @@ func DefaultParserOptions() *ParserOptions {
 }
 
 // This parser will stop processing fields when they would exceed the actual row size
-func NewDATParser(options *ParserOptions) Parser {
+func NewDATParser(options *ParserOptions) *DATParser {
 	if options == nil {
 		options = DefaultParserOptions()
 	}
@@ -459,7 +441,7 @@ func (p *DATParser) parseRowWithState(index int, rowData []byte, dynamicData []b
 	}, nil
 }
 
-// ReadField implements the Parser interface for reading individual field values
+// ReadField reads individual field values from DAT data
 func (p *DATParser) ReadField(data []byte, column *TableColumn, dynamicData []byte) (interface{}, error) {
 	if column.Array {
 		return p.readArrayField(data, column, dynamicData)
@@ -597,7 +579,6 @@ func (p *DATParser) readScalarField(data []byte, column *TableColumn, dynamicDat
 	}
 }
 
-
 // readArrayField reads an array field value with optional offset tracking state
 func (p *DATParser) readArrayField(data []byte, column *TableColumn, dynamicData []byte, state ...*parseState) (interface{}, error) {
 	// Array format based on poe-dat-viewer implementation:
@@ -655,8 +636,7 @@ func (p *DATParser) readArrayField(data []byte, column *TableColumn, dynamicData
 	return p.ReadArray(dynamicData, offset, count, column.Type, state...)
 }
 
-
-// ReadString implements the Parser interface for reading UTF-16 strings
+// ReadString reads UTF-16 strings from the dynamic data section
 func (p *DATParser) ReadString(dynamicData []byte, offset uint64, state ...*parseState) (string, error) {
 	// Offset 0 means empty string in DAT files
 	if offset == 0 {
@@ -734,7 +714,7 @@ func (p *DATParser) ReadString(dynamicData []byte, offset uint64, state ...*pars
 	return string(runes), nil
 }
 
-// ReadArray implements the Parser interface for reading arrays
+// ReadArray reads arrays from the dynamic data section
 func (p *DATParser) ReadArray(dynamicData []byte, offset uint64, count uint64, elementType FieldType, state ...*parseState) (interface{}, error) {
 	// Handle empty arrays (offset 0 or count 0)
 	if offset == 0 || count == 0 {
@@ -953,9 +933,6 @@ func (p *DATParser) readTypedArray(data []byte, count uint64, elementType FieldT
 		return nil, fmt.Errorf("unsupported array element type: %s", elementType)
 	}
 }
-
-
-
 
 // trackOffsetUsage validates offset usage patterns and tracks consumption
 func (p *DATParser) trackOffsetUsage(state *parseState, offset int, purpose string) error {
