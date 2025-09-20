@@ -51,17 +51,10 @@ func (sm *SchemaManager) LoadSchema() (*CommunitySchema, error) {
 	return sm.schema, nil
 }
 
-// GetTableSchema retrieves a specific table schema by name
-// DEPRECATED: Use GetTableSchemaForVersion for version-aware schema selection
-func (sm *SchemaManager) GetTableSchema(tableName string) (*TableSchema, bool) {
-	return sm.schema.GetTableSchema(tableName)
+// GetTableSchema retrieves a table schema by name filtered by game version compatibility
+func (sm *SchemaManager) GetTableSchema(tableName string, gameVersion string) (*TableSchema, error) {
+	return sm.schema.GetTableSchema(tableName, gameVersion)
 }
-
-// GetTableSchemaForVersion retrieves a table schema by name filtered by game version compatibility
-func (sm *SchemaManager) GetTableSchemaForVersion(tableName string, gameVersion string) (*TableSchema, error) {
-	return sm.schema.GetTableSchemaForVersion(tableName, gameVersion)
-}
-
 
 // GetValidTablesForVersion returns all tables valid for the given game version
 func (sm *SchemaManager) GetValidTablesForVersion(version string) ([]TableSchema, error) {
@@ -75,8 +68,8 @@ func (sm *SchemaManager) GetValidTablesForVersion(version string) ([]TableSchema
 
 // IsTableValidForVersion checks if a table is valid for the given game version
 func (sm *SchemaManager) IsTableValidForVersion(tableName, version string) (bool, error) {
-	schema, exists := sm.GetTableSchema(tableName)
-	if !exists {
+	schema, err := sm.GetTableSchema(tableName, version)
+	if err != nil {
 		return false, nil
 	}
 
@@ -158,7 +151,7 @@ func validateColumn(column *TableColumn) error {
 	// If column has references, validate the reference
 	if column.References != nil {
 		if column.References.Table == "" {
-			return fmt.Errorf("referenced table cannot be empty")
+			return fmt.Errorf("empty table")
 		}
 	}
 

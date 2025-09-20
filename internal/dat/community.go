@@ -79,29 +79,8 @@ func (schema *CommunitySchema) GetSchemaTableNames() []string {
 	return names
 }
 
-// GetTableSchema finds a table schema by name (case-insensitive)
-// DEPRECATED: Use GetTableSchemaForVersion for version-aware schema selection
-func (cs *CommunitySchema) GetTableSchema(tableName string) (*TableSchema, bool) {
-	// Try exact match first for performance
-	for i := range cs.Tables {
-		if cs.Tables[i].Name == tableName {
-			return &cs.Tables[i], true
-		}
-	}
-
-	// Fall back to case-insensitive match for DAT file names
-	lowerTableName := strings.ToLower(tableName)
-	for i := range cs.Tables {
-		if strings.ToLower(cs.Tables[i].Name) == lowerTableName {
-			return &cs.Tables[i], true
-		}
-	}
-
-	return nil, false
-}
-
-// GetTableSchemaForVersion finds a table schema by name filtered by game version compatibility
-func (cs *CommunitySchema) GetTableSchemaForVersion(tableName string, gameVersion string) (*TableSchema, error) {
+// GetTableSchema finds a table schema by name filtered by game version compatibility
+func (cs *CommunitySchema) GetTableSchema(tableName string, gameVersion string) (*TableSchema, error) {
 	// Parse game version to determine major version
 	majorVersion, err := utils.ParseGameVersion(gameVersion)
 	if err != nil {
@@ -110,60 +89,31 @@ func (cs *CommunitySchema) GetTableSchemaForVersion(tableName string, gameVersio
 
 	// Collect all matching schemas
 	var matchingSchemas []*TableSchema
-	var candidateSchemas []string // For debug logging
 
 	// Try exact match first for performance
 	for i := range cs.Tables {
-		// Log schema candidates for debugging
 		if cs.Tables[i].Name == tableName {
 			validForGame := cs.Tables[i].ValidFor.IsValidForGame(majorVersion)
-			candidateSchemas = append(candidateSchemas, fmt.Sprintf("exact_match(validFor=%d,compatible=%v)",
-				int(cs.Tables[i].ValidFor), validForGame))
-
 			if validForGame {
 				matchingSchemas = append(matchingSchemas, &cs.Tables[i])
-				slog.Debug("Schema match found (exact)",
-					"table", tableName,
-					"schema_validfor", int(cs.Tables[i].ValidFor),
-					"validfor_poe1", (cs.Tables[i].ValidFor&ValidForPoE1) != 0,
-					"validfor_poe2", (cs.Tables[i].ValidFor&ValidForPoE2) != 0,
-					"is_compatible", true)
 			}
 		}
 	}
 
 	// Fall back to case-insensitive match for DAT file names if no exact matches found
 	if len(matchingSchemas) == 0 {
-		slog.Debug("No exact matches found, trying case-insensitive search", "table", tableName)
 		lowerTableName := strings.ToLower(tableName)
 		for i := range cs.Tables {
 			if strings.ToLower(cs.Tables[i].Name) == lowerTableName {
 				validForGame := cs.Tables[i].ValidFor.IsValidForGame(majorVersion)
-				candidateSchemas = append(candidateSchemas, fmt.Sprintf("case_insensitive(validFor=%d,compatible=%v)",
-					int(cs.Tables[i].ValidFor), validForGame))
-
 				if validForGame {
 					matchingSchemas = append(matchingSchemas, &cs.Tables[i])
-					slog.Debug("Schema match found (case-insensitive)",
-						"table", tableName,
-						"schema_name", cs.Tables[i].Name,
-						"schema_validfor", int(cs.Tables[i].ValidFor),
-						"validfor_poe1", (cs.Tables[i].ValidFor&ValidForPoE1) != 0,
-						"validfor_poe2", (cs.Tables[i].ValidFor&ValidForPoE2) != 0,
-						"is_compatible", true)
 				}
 			}
 		}
 	}
 
-	// Log the result of schema selection
 	if len(matchingSchemas) == 0 {
-		slog.Debug("No compatible schema found",
-			"table", tableName,
-			"game_version", gameVersion,
-			"major_version", majorVersion,
-			"is_poe2", majorVersion >= 4,
-			"candidates_checked", strings.Join(candidateSchemas, ", "))
 		return nil, fmt.Errorf("no schema found for table %s compatible with game version %s (major: %d)", tableName, gameVersion, majorVersion)
 	}
 
@@ -177,20 +127,6 @@ func (cs *CommunitySchema) GetTableSchemaForVersion(tableName string, gameVersio
 	selectedSchema := matchingSchemas[0]
 
 	return selectedSchema, nil
-}
-
-// getValidForDescription returns a human-readable description of ValidFor flags
-func getValidForDescription(validFor ValidFor) string {
-	switch validFor {
-	case ValidForPoE1:
-		return "PoE1_only"
-	case ValidForPoE2:
-		return "PoE2_only"
-	case ValidForBoth:
-		return "Both_PoE1_and_PoE2"
-	default:
-		return fmt.Sprintf("Unknown_%d", int(validFor))
-	}
 }
 
 // GetValidTables returns all tables that are valid for the given game version
@@ -221,7 +157,7 @@ func (schema *CommunitySchema) FilterTablesForVersion(tableNames []string, versi
 	var validTables []string
 	for _, tableName := range tableNames {
 		// Use the version-aware schema selection to check compatibility
-		table, err := schema.GetTableSchemaForVersion(tableName, version)
+		table, err := schema.GetTableSchema(tableName, version)
 		if err != nil {
 			continue // Skip tables that don't have compatible schemas
 		}

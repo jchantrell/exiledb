@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"log/slog"
@@ -193,17 +194,9 @@ extracts DAT files into a queryable SQLite database.`,
 					continue
 				}
 
-				parser := dat.NewDATParser(
-					&dat.ParserOptions{
-						StrictMode:                false,
-						ValidateReferences:        false,
-						MaxStringLength:           65536,
-						MaxArrayCount:             65536,
-						ArraySizeWarningThreshold: 1000,
-					},
-				)
+				parser := dat.NewDATParser()
 
-				datReader := strings.NewReader(string(datData))
+				datReader := bytes.NewReader(datData)
 				parsedTable, err := parser.ParseDATFileWithFilename(context.Background(), datReader, path, &datSchema)
 				if err != nil || len(parsedTable.Rows) == 0 {
 					slog.Error("Failed to parse DAT file", "path", path, "table", datSchema.Name, "size_bytes", len(datData), "error", err)

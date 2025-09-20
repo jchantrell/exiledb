@@ -7,9 +7,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"strconv"
-	"strings"
-	"unsafe"
 )
 
 // ParsedTable represents a completely parsed DAT table with all rows and metadata
@@ -44,13 +43,10 @@ type DATParser struct {
 	options *ParserOptions
 }
 
-// parseState tracks offset usage during DAT file parsing
+// parseState tracks the current row during DAT file parsing
 type parseState struct {
-	parser       *DATParser
-	lastOffset   int          // Last accessed offset in dynamic data
-	seenOffsets  map[int]bool // Track which offsets have been used
-	currentRow   int          // Current row being parsed (for error messages)
-	currentField string       // Current field being parsed (for error messages)
+	parser     *DATParser
+	currentRow int // Current row being parsed (for error messages)
 }
 
 // ParserOptions configures DAT parsing behavior
@@ -71,54 +67,69 @@ type ParserOptions struct {
 	ArraySizeWarningThreshold int
 }
 
-// DefaultParserOptions returns sensible default options for DAT parsing
-func DefaultParserOptions() *ParserOptions {
-	return &ParserOptions{
-		StrictMode:                false,
-		ValidateReferences:        false,
-		MaxStringLength:           65536, // 64KB max string length
-		MaxArrayCount:             65536, // Restored to match reference implementations
-		ArraySizeWarningThreshold: 1000,  // Warn when arrays exceed 1000 elements (legitimate large arrays exist)
-	}
-}
-
-// This parser will stop processing fields when they would exceed the actual row size
-func NewDATParser(options *ParserOptions) *DATParser {
-	if options == nil {
-		options = DefaultParserOptions()
-	}
-
-	return &DATParser{
-		options: options,
-	}
-}
-
-// Constants for DAT file format
 const (
-	// BoundaryMarker is the 8-byte marker separating fixed and dynamic data
-	BoundaryMarker = "\xbb\xbb\xbb\xbb\xbb\xbb\xbb\xbb"
-
 	// NullRowSentinel is the sentinel value indicating a null row reference
 	NullRowSentinel uint32 = 0xfefe_fefe
 
+	// LongIDNullSentinel is the 64-bit sentinel value for null LongID references
+	LongIDNullSentinel uint64 = 0xfefe_fefe_fefe_fefe
+
+	// SentinelValue32 is the 32-bit sentinel value for null strings/arrays
+	SentinelValue32 uint32 = 0xFEFEFEFE
+
+	// SentinelValue64 is the 64-bit sentinel value for null strings/arrays
+	SentinelValue64 uint64 = 0xFEFEFEFEFEFEFEFE
+
+	// MaxReasonableForeignKeyIndex is the maximum reasonable value for foreign key indices
+	MaxReasonableForeignKeyIndex uint32 = 100_000_000
+
 	// MinDATFileSize is the minimum size for a valid DAT file (4 bytes for row count + 8 bytes boundary)
 	MinDATFileSize = 12
+
+	// MaxRowCount is the maximum reasonable number of rows in a DAT file
+	MaxRowCount = 10_000_000
+
+	// MinOffsetForArraysAndStrings is the minimum offset value for arrays and strings in dynamic data
+	MinOffsetForArraysAndStrings = 8
+
+	// ElementSize64BitForeignRow is the element size for foreign/enum row arrays in 64-bit width
+	ElementSize64BitForeignRow = 16
+
+	// UTF-16 surrogate pair constants for Unicode decoding
+	UTF16HighSurrogateStart      = 0xD800
+	UTF16HighSurrogateEnd        = 0xDBFF
+	UTF16LowSurrogateStart       = 0xDC00
+	UTF16SupplementaryPlaneStart = 0x10000
+
+	// Default configuration values
+	DefaultMaxStringLength           = 65536 // 64KB max string length
+	DefaultMaxArrayCount             = 65536 // Match reference implementations
+	DefaultArraySizeWarningThreshold = 1000  // Warn when arrays exceed 1000 elements
 )
 
-// ParseDATFile parses a complete DAT file using the provided schema
-// Uses default width detection (defaults to 64-bit for backward compatibility)
+var BoundaryMarker = []byte{0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb}
+
+func NewDATParser() *DATParser {
+	return &DATParser{
+		options: &ParserOptions{
+			StrictMode:                false,
+			ValidateReferences:        false,
+			MaxStringLength:           DefaultMaxStringLength,
+			MaxArrayCount:             DefaultMaxArrayCount,
+			ArraySizeWarningThreshold: DefaultArraySizeWarningThreshold,
+		},
+	}
+}
+
 func (p *DATParser) ParseDATFile(ctx context.Context, r io.Reader, schema *TableSchema) (*ParsedTable, error) {
-	// Use the filename-aware method with empty filename (defaults to 64-bit)
 	return p.ParseDATFileWithFilename(ctx, r, "", schema)
 }
 
-// ParseDATFileWithFilename parses a complete DAT file with width detection based on filename extension
 func (p *DATParser) ParseDATFileWithFilename(ctx context.Context, r io.Reader, filename string, schema *TableSchema) (*ParsedTable, error) {
 	if schema == nil {
 		return nil, fmt.Errorf("schema cannot be nil")
 	}
 
-	// Read entire DAT file into memory
 	data, err := io.ReadAll(r)
 	if err != nil {
 		return nil, fmt.Errorf("reading DAT file: %w", err)
@@ -128,103 +139,58 @@ func (p *DATParser) ParseDATFileWithFilename(ctx context.Context, r io.Reader, f
 		return nil, fmt.Errorf("DAT file too small: %d bytes (minimum %d)", len(data), MinDATFileSize)
 	}
 
-	// Parse DAT file structure
 	datFile, err := p.parseDATStructure(data)
 	if err != nil {
 		return nil, fmt.Errorf("parsing DAT structure: %w", err)
 	}
 
-	// Determine parser width based on filename extension
 	if filename != "" {
 		p.width = WidthForFilename(filename)
 	} else {
-		// Default to 64-bit for backward compatibility when no filename provided
 		p.width = Width64
 	}
 
-	slog.Debug("Parser width determined",
-		"filename", filename,
-		"width", int(p.width),
-		"table", schema.Name)
-
-	// Calculate row size from schema
 	rowSize := p.CalculateRowSize(schema, p.width)
 	if rowSize == 0 {
 		return nil, fmt.Errorf("calculated row size is zero for table %s", schema.Name)
 	}
 
-	slog.Debug("Row size calculated",
-		"filename", filename,
-		"table", schema.Name,
-		"calculated_row_size", rowSize,
-		"row_count", datFile.RowCount,
-		"expected_fixed_size", datFile.RowCount*rowSize)
-
-	// Find aligned boundary marker position for .datc64 files
-	// The boundary must align with row boundaries for proper parsing
 	actualBoundaryPos := p.findAlignedBoundaryMarker(data[4:], datFile.RowCount)
 	if actualBoundaryPos == -1 {
 		return nil, fmt.Errorf("aligned boundary marker not found in .datc64 file (file size: %d bytes, row count: %d, schema: %s)",
 			len(data), datFile.RowCount, schema.Name)
 	}
-	actualBoundaryPos += 4 // Adjust for skipping first 4 bytes
+	actualBoundaryPos += 4
 
-	slog.Debug("Boundary marker found",
-		"filename", filename,
-		"table", schema.Name,
-		"boundary_position", actualBoundaryPos,
-		"row_count", datFile.RowCount,
-		"alignment_check", datFile.RowCount == 0 || (actualBoundaryPos-4)%datFile.RowCount == 0)
-
-	// Calculate actual row size from aligned boundary position
 	actualFixedDataSize := actualBoundaryPos - 4
 	if datFile.RowCount > 0 {
 		actualRowSize := actualFixedDataSize / datFile.RowCount
-		// Validate that row size aligns perfectly
 		if actualFixedDataSize%datFile.RowCount != 0 {
 			return nil, fmt.Errorf("boundary position %d does not align with row count %d (remainder: %d bytes)",
 				actualBoundaryPos, datFile.RowCount, actualFixedDataSize%datFile.RowCount)
 		}
 		if actualRowSize != rowSize {
-			slog.Debug("Row size adjusted from boundary",
-				"filename", filename,
-				"table", schema.Name,
-				"calculated_row_size", rowSize,
-				"actual_row_size", actualRowSize,
-				"difference", actualRowSize-rowSize)
+			slog.Debug("Row size adjusted", "table", schema.Name, "from", rowSize, "to", actualRowSize)
 		}
 		rowSize = actualRowSize
 	}
 
-	slog.Debug("Data section sizes",
-		"filename", filename,
-		"table", schema.Name,
-		"fixed_data_size", len(datFile.FixedData),
-		"dynamic_data_size", len(datFile.DynamicData),
-		"final_row_size", rowSize)
-
-	// Validate that fixed data size matches expected row count and size
 	expectedFixedSize := datFile.RowCount * rowSize
 	if len(datFile.FixedData) != expectedFixedSize {
 		return nil, fmt.Errorf("fixed data size mismatch: expected %d bytes (%d rows * %d bytes/row), got %d bytes",
 			expectedFixedSize, datFile.RowCount, rowSize, len(datFile.FixedData))
 	}
 
-	// Initialize parse state for offset tracking
 	state := &parseState{
-		parser:      p,
-		lastOffset:  8, // Boundary marker occupies bytes 0-7 in dynamic data
-		seenOffsets: make(map[int]bool),
+		parser: p,
 	}
 
-	// Parse all rows
 	rows := make([]ParsedRow, datFile.RowCount)
 	maxFieldsParsed := 0
 	successfulRows := 0
 	failedRows := 0
 
 	for i := 0; i < datFile.RowCount; i++ {
-		// Check for context cancellation during parsing
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
@@ -234,7 +200,7 @@ func (p *DATParser) ParseDATFileWithFilename(ctx context.Context, r io.Reader, f
 		state.currentRow = i
 		rowData := datFile.FixedData[i*rowSize : (i+1)*rowSize]
 
-		row, err := p.parseRowWithState(i, rowData, datFile.DynamicData, schema, state)
+		row, err := p.parseRow(i, rowData, datFile.DynamicData, schema, state)
 		if err != nil {
 			failedRows++
 			slog.Error("Row parsing failed",
@@ -247,16 +213,9 @@ func (p *DATParser) ParseDATFileWithFilename(ctx context.Context, r io.Reader, f
 		rows[i] = *row
 		successfulRows++
 
-		// Track maximum fields parsed for partial schema
 		if row.FieldsParsed > maxFieldsParsed {
 			maxFieldsParsed = row.FieldsParsed
 		}
-	}
-
-	// Validate that all dynamic data was used in strict mode
-	if p.options.StrictMode && state.lastOffset < len(datFile.DynamicData) {
-		return nil, fmt.Errorf("%d trailing bytes of dynamic data unused",
-			len(datFile.DynamicData)-state.lastOffset)
 	}
 
 	return &ParsedTable{
@@ -272,36 +231,28 @@ func (p *DATParser) ParseDATFileWithFilename(ctx context.Context, r io.Reader, f
 	}, nil
 }
 
-// parseDATStructure parses the basic structure of a DAT file
 func (p *DATParser) parseDATStructure(data []byte) (*DatFile, error) {
-	// Read row count from first 4 bytes
 	if len(data) < 4 {
 		return nil, fmt.Errorf("file too small to contain row count")
 	}
 
-	// Read row count as signed 32-bit integer (following pogo reference implementation)
 	rowCountRaw := binary.LittleEndian.Uint32(data[0:4])
 	rowCount := int32(rowCountRaw)
 
-	// Validate row count - very large counts might indicate format issue
-	if rowCount > 10_000_000 {
+	if rowCount > MaxRowCount {
 		return nil, fmt.Errorf("row count %d exceeds reasonable limit", rowCount)
 	}
 
-	// Use aligned boundary detection for proper parsing
 	boundaryIndex := p.findAlignedBoundaryMarker(data[4:], int(rowCount))
 	if boundaryIndex == -1 {
 		return nil, fmt.Errorf("aligned boundary marker not found in DAT file (file size: %d bytes, row count: %d)",
 			len(data), rowCount)
 	}
 
-	// Adjust boundary index to account for skipping first 4 bytes
 	boundaryIndex += 4
 
-	// Extract fixed data (between row count and boundary)
 	fixedData := data[4:boundaryIndex]
 
-	// Extract dynamic data (starting at boundary marker, like poe-dat-viewer)
 	dynamicDataStart := boundaryIndex
 	if dynamicDataStart > len(data) {
 		return nil, fmt.Errorf("dynamic data section extends beyond file")
@@ -310,19 +261,16 @@ func (p *DATParser) parseDATStructure(data []byte) (*DatFile, error) {
 
 	return &DatFile{
 		RowCount:    int(rowCount),
-		RowLength:   0, // Will be calculated based on schema
+		RowLength:   0,
 		FixedData:   fixedData,
 		DynamicData: dynamicData,
 	}, nil
 }
 
-// CalculateRowSize calculates the size of a single row based on the schema and parser width
 func (p *DATParser) CalculateRowSize(schema *TableSchema, width ParserWidth) int {
 	totalSize := 0
 
-	// Handle field count discrepancies between schema and actual binary files
-	// The community schema may define more fields than exist in the actual .datc64 files
-	maxFields := p.getActualFieldCount(schema, width)
+	maxFields := len(schema.Columns)
 
 	fieldsProcessed := 0
 	for _, column := range schema.Columns {
@@ -330,103 +278,43 @@ func (p *DATParser) CalculateRowSize(schema *TableSchema, width ParserWidth) int
 			break
 		}
 
-		// Include ALL fields up to the actual field count limit
-		// Both named and unnamed fields exist in the actual binary structure
 		var fieldSize int
 
 		if column.Array {
-			// Array sizes based on poe-dat-viewer: 16 bytes for 64-bit, 8 bytes for 32-bit
-			fieldSize = TypeArray.SizeForWidth(width)
+			fieldSize = TypeArray.Size(width)
 		} else {
-			// Use direct field size calculation based on poe-dat-viewer implementation
-			fieldSize = column.Type.SizeForWidth(width)
+			fieldSize = column.Type.Size(width)
 		}
 
-		// No alignment for most .datc64 files - they use tighter packing
 		totalSize += fieldSize
 		fieldsProcessed++
-	}
-
-	// Special case: BaseItemTypes needs adjustment to reach 308 bytes
-	if strings.Contains(schema.Name, "BaseItemTypes") && width == Width64 {
-		// The actual BaseItemTypes schema may have different field types/sizes
-		// than our generic test. The analysis shows it should be 308 bytes for 30 fields.
-		// If we calculated something different, adjust to match the actual file structure.
-		expectedSize := 308
-		if totalSize != expectedSize {
-			totalSize = expectedSize
-		}
 	}
 
 	return totalSize
 }
 
-// getActualFieldCount returns the actual number of fields present in the binary file
-// vs the number defined in the community schema, which can differ
-func (p *DATParser) getActualFieldCount(schema *TableSchema, width ParserWidth) int {
-	schemaFieldCount := len(schema.Columns)
-
-	// Handle known field count discrepancies for specific tables
-	if strings.Contains(schema.Name, "BaseItemTypes") && width == Width64 {
-		// BaseItemTypes .datc64 files have 30 actual fields (308 bytes total)
-		// but the community schema defines 34 fields (which would be 342 bytes)
-		// The last 4 schema fields don't exist in the actual binary file
-		// 342 - 308 = 34 bytes, so we exclude the last 4 fields
-		if schemaFieldCount > 30 {
-			return 30
-		}
-	}
-
-	// For other tables, assume schema matches binary file structure
-	return schemaFieldCount
-}
-
-// parseRowWithState parses a single row using the schema and state tracking with dynamic offset calculation
-func (p *DATParser) parseRowWithState(index int, rowData []byte, dynamicData []byte, schema *TableSchema, state *parseState) (*ParsedRow, error) {
+func (p *DATParser) parseRow(index int, rowData []byte, dynamicData []byte, schema *TableSchema, state *parseState) (*ParsedRow, error) {
 	fields := make(map[string]interface{})
 	fieldsParsed := 0
+	currentOffset := 0
 
-	// Get the actual field count to match calculateRowSize behavior
-	maxFields := p.getActualFieldCount(schema, state.parser.width)
-
-	// First pass: discover all variable data offsets to build field boundaries
-	fieldOffsets, err := p.discoverFieldOffsets(rowData, schema, maxFields)
-	if err != nil {
-		return nil, fmt.Errorf("discovering field offsets: %w", err)
-	}
-
-	// Second pass: parse fields using discovered boundaries
 	for i, column := range schema.Columns {
-		// Stop processing if we've reached the actual field limit
-		if i >= maxFields {
+		if i >= len(schema.Columns) {
 			break
 		}
 
-		name := "unknown"
+		name := p.resolveFieldName(&column, i)
+		fieldSize := p.calculateFieldSize(&column)
 
-		if column.Name == nil {
-			name = "Unknown" + strconv.Itoa(i)
-		} else {
-			name = *column.Name
-		}
-
-		state.currentField = name
-
-		// Get field boundaries from discovery phase
-		fieldStart := fieldOffsets[i].Offset
-		fieldEnd := fieldOffsets[i].EndOffset
-
-		if fieldStart >= len(rowData) {
-			slog.Debug("Field exceeds row data length", "name", name, "fieldStart", fieldStart, "rowLength", len(rowData))
+		fieldData, newOffset, shouldBreak := p.extractFieldData(rowData, currentOffset, fieldSize, name)
+		if shouldBreak {
 			break
 		}
+		currentOffset = newOffset
 
-		// Extract field data using dynamic boundaries
-		fieldData := rowData[fieldStart:fieldEnd]
-
-		value, err := p.readFieldWithDynamicSize(fieldData, &column, dynamicData, state)
+		value, err := p.parseFieldValue(fieldData, &column, dynamicData, state)
 		if err != nil {
-			slog.Debug("Could not read field", "name", name, "fieldStart", fieldStart)
+			slog.Debug("Could not read field", "name", name, "fieldStart", currentOffset-fieldSize)
 			break
 		}
 
@@ -441,132 +329,118 @@ func (p *DATParser) parseRowWithState(index int, rowData []byte, dynamicData []b
 	}, nil
 }
 
-// ReadField reads individual field values from DAT data
-func (p *DATParser) ReadField(data []byte, column *TableColumn, dynamicData []byte) (interface{}, error) {
-	if column.Array {
-		return p.readArrayField(data, column, dynamicData)
+func (p *DATParser) resolveFieldName(column *TableColumn, index int) string {
+	if column.Name == nil {
+		return "Unknown" + strconv.Itoa(index)
 	}
-
-	return p.readScalarField(data, column, dynamicData)
+	return *column.Name
 }
 
-// readFieldWithState reads a field value while tracking dynamic data usage
-func (p *DATParser) readFieldWithState(data []byte, column *TableColumn, dynamicData []byte, state *parseState) (interface{}, error) {
+func (p *DATParser) calculateFieldSize(column *TableColumn) int {
 	if column.Array {
-		return p.readArrayField(data, column, dynamicData, state)
+		return TypeArray.Size(p.width)
 	}
 
-	return p.readScalarField(data, column, dynamicData, state)
+	fieldSize := column.Type.Size(p.width)
+	if column.Interval {
+		fieldSize *= 2
+	}
+	return fieldSize
 }
 
-// readScalarField reads a non-array field value
+func (p *DATParser) extractFieldData(rowData []byte, currentOffset, fieldSize int, name string) ([]byte, int, bool) {
+	fieldStart := currentOffset
+	fieldEnd := currentOffset + fieldSize
+
+	if fieldStart >= len(rowData) {
+		slog.Debug("Field exceeds row data length", "name", name, "fieldStart", fieldStart, "rowLength", len(rowData))
+		return nil, currentOffset, true
+	}
+
+	if fieldEnd > len(rowData) {
+		fieldEnd = len(rowData)
+	}
+
+	fieldData := rowData[fieldStart:fieldEnd]
+	newOffset := currentOffset + fieldSize
+
+	if newOffset > len(rowData) {
+		return fieldData, newOffset, true
+	}
+
+	return fieldData, newOffset, false
+}
+
+func (p *DATParser) parseFieldValue(fieldData []byte, column *TableColumn, dynamicData []byte, state *parseState) (interface{}, error) {
+	if column.Array {
+		return p.readArrayField(fieldData, column, dynamicData, state)
+	}
+	return p.readScalarField(fieldData, column, dynamicData, state)
+}
+
 func (p *DATParser) readScalarField(data []byte, column *TableColumn, dynamicData []byte, state ...*parseState) (interface{}, error) {
+	var statePtr *parseState
+	if len(state) > 0 {
+		statePtr = state[0]
+	}
+
+	requiredBytes := column.Type.Size(p.width)
+	if len(data) < requiredBytes {
+		return nil, fmt.Errorf("field %s: insufficient data", column.Type)
+	}
+
 	switch column.Type {
 	case TypeBool:
-		if len(data) < 1 {
-			return nil, fmt.Errorf("insufficient data for bool field")
-		}
 		return data[0] != 0, nil
 
 	case TypeInt16:
-		if len(data) < 2 {
-			return nil, fmt.Errorf("insufficient data for i16 field")
-		}
 		return int16(binary.LittleEndian.Uint16(data)), nil
 
 	case TypeUint16:
-		if len(data) < 2 {
-			return nil, fmt.Errorf("insufficient data for u16 field")
-		}
 		return binary.LittleEndian.Uint16(data), nil
 
 	case TypeInt32:
-		if len(data) < 4 {
-			return nil, fmt.Errorf("insufficient data for i32 field")
-		}
 		return int32(binary.LittleEndian.Uint32(data)), nil
 
 	case TypeUint32:
-		if len(data) < 4 {
-			return nil, fmt.Errorf("insufficient data for u32 field")
-		}
 		return binary.LittleEndian.Uint32(data), nil
 
 	case TypeInt64:
-		if len(data) < 8 {
-			return nil, fmt.Errorf("insufficient data for i64 field")
-		}
 		return int64(binary.LittleEndian.Uint64(data)), nil
 
 	case TypeUint64:
-		if len(data) < 8 {
-			return nil, fmt.Errorf("insufficient data for u64 field")
-		}
 		return binary.LittleEndian.Uint64(data), nil
 
 	case TypeFloat32:
-		if len(data) < 4 {
-			return nil, fmt.Errorf("insufficient data for f32 field")
-		}
-		bits := binary.LittleEndian.Uint32(data)
-		return *(*float32)(unsafe.Pointer(&bits)), nil
+		return readFloat32At(data, 0), nil
 
 	case TypeFloat64:
-		if len(data) < 8 {
-			return nil, fmt.Errorf("insufficient data for f64 field")
-		}
-		bits := binary.LittleEndian.Uint64(data)
-		return *(*float64)(unsafe.Pointer(&bits)), nil
+		return readFloat64At(data, 0), nil
 
 	case TypeString:
-		// IMPORTANT: .datc64 files still use 4-byte string offsets despite being 64-bit
-		// Only array counts and row references use 8-byte values in .datc64 files
-		if len(data) < 4 {
-			return nil, fmt.Errorf("insufficient data for string offset")
-		}
 		offset := binary.LittleEndian.Uint32(data)
-
-		// Check for NULL string sentinel
-		if offset == NullRowSentinel {
-			return "", nil // Return empty string for NULL
-		}
-
-		return p.ReadString(dynamicData, uint64(offset), state...)
+		return p.ReadString(dynamicData, uint64(offset), statePtr)
 
 	case TypeRow, TypeForeignRow, TypeEnumRow:
-		if len(data) < 4 {
-			return nil, fmt.Errorf("insufficient data for row reference")
-		}
 		value := binary.LittleEndian.Uint32(data)
 		if value == NullRowSentinel {
-			return nil, nil // Null reference
+			return nil, nil
 		}
 		return &value, nil
 
 	case TypeLongID:
-		// LongID size depends on parser width
 		if p.width == Width32 {
-			// 32-bit: 8-byte LongID
-			if len(data) < 8 {
-				return nil, fmt.Errorf("insufficient data for 32-bit LongID field")
-			}
 			value := binary.LittleEndian.Uint64(data)
-			if value == 0xfefe_fefe_fefe_fefe { // LongID null sentinel (extended from regular row sentinel)
-				return nil, nil // Null reference
+			if value == LongIDNullSentinel {
+				return nil, nil
 			}
 			return &value, nil
 		} else {
-			// 64-bit: 16-byte LongID
-			if len(data) < 16 {
-				return nil, fmt.Errorf("insufficient data for 64-bit LongID field")
-			}
-			// Read low 8 bytes as the actual value
 			value := binary.LittleEndian.Uint64(data[0:8])
-			// Read high 8 bytes for validation (should be 0 or null sentinel)
 			high := binary.LittleEndian.Uint64(data[8:16])
 
-			if value == 0xfefe_fefe_fefe_fefe && high == 0xfefe_fefe_fefe_fefe {
-				return nil, nil // Null reference
+			if value == LongIDNullSentinel && high == LongIDNullSentinel {
+				return nil, nil
 			}
 			if high != 0 {
 				return nil, fmt.Errorf("unexpected value in high half of LongID: %016x %016x", value, high)
@@ -575,137 +449,84 @@ func (p *DATParser) readScalarField(data []byte, column *TableColumn, dynamicDat
 		}
 
 	default:
-		return nil, fmt.Errorf("unsupported field type: %s", column.Type)
+		return nil, fmt.Errorf("field %s: unsupported type", column.Type)
 	}
 }
 
-// readArrayField reads an array field value with optional offset tracking state
-func (p *DATParser) readArrayField(data []byte, column *TableColumn, dynamicData []byte, state ...*parseState) (interface{}, error) {
-	// Array format based on poe-dat-viewer implementation:
-	// Arrays use two offsets: count + variable data offset separated by memsize
-	// 64-bit: count (4 bytes) + offset (4 bytes at +8) = 16 bytes total slot
-	// 32-bit: count (4 bytes) + offset (4 bytes at +4) = 8 bytes total slot
-	var count, offset uint64
+func (p *DATParser) validateArrayFieldInput(data []byte, dynamicData []byte) (count, offset uint64, err error) {
+	arraySize := TypeArray.Size(p.width)
+	if len(data) < arraySize {
+		return 0, 0, fmt.Errorf("array field: insufficient data for %d-bit (need %d bytes)", int(p.width), arraySize)
+	}
 
-	// Use poe-dat-viewer pattern: offset + memsize for variable data pointer
+	count = uint64(binary.LittleEndian.Uint32(data[0:4]))
 	if p.width == Width64 {
-		if len(data) < 16 {
-			return nil, fmt.Errorf("insufficient data for 64-bit array field")
-		}
-		count = uint64(binary.LittleEndian.Uint32(data[0:4]))
-		// memsize = 8 for 64-bit, so variable data offset is at +8
 		offset = uint64(binary.LittleEndian.Uint32(data[8:12]))
-
 	} else {
-		if len(data) < 8 {
-			return nil, fmt.Errorf("insufficient data for 32-bit array field")
-		}
-		count = uint64(binary.LittleEndian.Uint32(data[0:4]))
-		// memsize = 4 for 32-bit, so variable data offset is at +4
 		offset = uint64(binary.LittleEndian.Uint32(data[4:8]))
-
 	}
 
-	// Check for empty array first (poe-dat-viewer: if (arrayLength === 0) return [])
-	if count == 0 {
-		return p.createEmptyArray(column.Type)
+	return count, offset, nil
+}
+
+func (p *DATParser) readArrayField(data []byte, column *TableColumn, dynamicData []byte, state ...*parseState) (interface{}, error) {
+	count, offset, err := p.validateArrayFieldInput(data, dynamicData)
+	if err != nil {
+		return nil, err
 	}
 
-	// Check for sentinel values in count (indicating null/empty array)
-	if count == 0xFEFEFEFE {
-		return p.createEmptyArray(column.Type)
-	}
-
-	// Validate array offset - if offset is outside the variable data section, treat as empty
-	// This handles cases where we're reading garbage data from wrong field alignment
-	if offset >= uint64(len(dynamicData)) {
-		return p.createEmptyArray(column.Type)
-	}
-
-	// Extract state for validation if provided
 	var statePtr *parseState
 	if len(state) > 0 {
 		statePtr = state[0]
 	}
 
-	// Apply field-specific validation and logging
 	if err := p.validateArraySize(count, column, statePtr); err != nil {
 		return nil, err
 	}
 
-	return p.ReadArray(dynamicData, offset, count, column.Type, state...)
+	return p.ReadArray(dynamicData, offset, count, column.Type, statePtr)
 }
 
-// ReadString reads UTF-16 strings from the dynamic data section
-func (p *DATParser) ReadString(dynamicData []byte, offset uint64, state ...*parseState) (string, error) {
-	// Offset 0 means empty string in DAT files
+func (p *DATParser) ReadString(dynamicData []byte, offset uint64, state *parseState) (string, error) {
 	if offset == 0 {
 		return "", nil
 	}
 
-	// Handle sentinel values indicating null strings (consistent with array handling)
-	const (
-		SentinelValue32 = 0xFEFEFEFE
-		SentinelValue64 = 0xFEFEFEFEFEFEFEFE
-	)
-
-	// Check for sentinel values indicating null/empty strings
-	// Note: Even in 64-bit format, offsets are read as 32-bit values, so we need to check both
-	if offset == SentinelValue32 || (p.width == Width64 && offset == SentinelValue64) {
+	if offset == uint64(SentinelValue32) || (p.width == Width64 && offset == SentinelValue64) {
 		return "", nil
 	}
 
-	// Very small offsets (1-7) are likely padding or special values, treat as empty
-	if offset < 8 {
+	if offset < MinOffsetForArraysAndStrings {
 		return "", nil
 	}
 
 	if offset >= uint64(len(dynamicData)) {
-		return "", fmt.Errorf("string offset %d exceeds dynamic data size %d", offset, len(dynamicData))
+		return "", fmt.Errorf("string: offset %d exceeds dynamic data size %d", offset, len(dynamicData))
 	}
 
-	// Track offset usage and validate sequential access if state is provided
-	if len(state) > 0 && state[0] != nil {
-		err := p.trackOffsetUsage(state[0], int(offset), "string")
-		if err != nil {
-			return "", err
-		}
-	}
-
-	// Read UTF-16 string until null terminator
 	data := dynamicData[offset:]
 	var result []uint16
-	bytesRead := 0
 
 	for i := 0; i < len(data)-1; i += 2 {
 		ch := binary.LittleEndian.Uint16(data[i:])
 		if ch == 0 {
-			bytesRead = i + 2 // Include null terminator
 			break
 		}
 		result = append(result, ch)
 
-		// Prevent excessive memory usage
 		if len(result)*2 > p.options.MaxStringLength {
-			return "", fmt.Errorf("string exceeds maximum length %d", p.options.MaxStringLength)
+			return "", fmt.Errorf("string: exceeds maximum length %d", p.options.MaxStringLength)
 		}
 	}
 
-	// Update offset tracking if state is provided
-	if len(state) > 0 && state[0] != nil {
-		p.updateLastOffset(state[0], int(offset), bytesRead)
-	}
-
-	// Convert UTF-16 to Go string
 	runes := make([]rune, 0, len(result))
 	for i := 0; i < len(result); i++ {
-		if result[i] >= 0xD800 && result[i] <= 0xDBFF && i+1 < len(result) {
-			// High surrogate pair
-			high := uint32(result[i] - 0xD800)
-			low := uint32(result[i+1] - 0xDC00)
-			codepoint := 0x10000 + (high << 10) + low
+		if result[i] >= UTF16HighSurrogateStart && result[i] <= UTF16HighSurrogateEnd && i+1 < len(result) {
+			high := uint32(result[i] - UTF16HighSurrogateStart)
+			low := uint32(result[i+1] - UTF16LowSurrogateStart)
+			codepoint := UTF16SupplementaryPlaneStart + (high << 10) + low
 			runes = append(runes, rune(codepoint))
-			i++ // Skip low surrogate
+			i++
 		} else {
 			runes = append(runes, rune(result[i]))
 		}
@@ -714,79 +535,45 @@ func (p *DATParser) ReadString(dynamicData []byte, offset uint64, state ...*pars
 	return string(runes), nil
 }
 
-// ReadArray reads arrays from the dynamic data section
-func (p *DATParser) ReadArray(dynamicData []byte, offset uint64, count uint64, elementType FieldType, state ...*parseState) (interface{}, error) {
-	// Handle empty arrays (offset 0 or count 0)
+func (p *DATParser) ReadArray(dynamicData []byte, offset uint64, count uint64, elementType FieldType, state *parseState) (interface{}, error) {
 	if offset == 0 || count == 0 {
-		return p.createEmptyArray(elementType)
+		return createEmptyArray(elementType), nil
 	}
 
-	// Handle sentinel values indicating null/empty arrays
-	// poe-dat-viewer uses 0xFEFEFEFE (32-bit) and 0xFEFEFEFEFEFEFEFE (64-bit) as null sentinels
-	const (
-		SentinelValue32 = 0xFEFEFEFE
-		SentinelValue64 = 0xFEFEFEFEFEFEFEFE
-	)
-
-	// Check for sentinel values indicating null/empty arrays
-	// Note: Even in 64-bit format, offsets are read as 32-bit values, so we need to check both
-	if offset == SentinelValue32 || (p.width == Width64 && offset == SentinelValue64) {
-		return p.createEmptyArray(elementType)
+	if offset == uint64(SentinelValue32) || (p.width == Width64 && offset == SentinelValue64) {
+		return createEmptyArray(elementType), nil
 	}
 
-	if offset < 8 {
-		return nil, fmt.Errorf("array offset %d is too small (minimum 8)", offset)
+	if offset < MinOffsetForArraysAndStrings {
+		return nil, fmt.Errorf("array: offset %d too small (minimum %d)", offset, MinOffsetForArraysAndStrings)
 	}
 
 	if offset >= uint64(len(dynamicData)) {
-		return nil, fmt.Errorf("array offset %d exceeds dynamic data size %d", offset, len(dynamicData))
+		return nil, fmt.Errorf("array: offset %d exceeds dynamic data size %d", offset, len(dynamicData))
 	}
 
 	if count == 0 {
-		// If state is provided and count is 0, track minimal usage
-		if len(state) > 0 && state[0] != nil {
-			err := p.trackOffsetUsage(state[0], int(offset), fmt.Sprintf("array[%d]", count))
-			if err != nil {
-				return nil, err
-			}
-		}
-		return p.createEmptyArray(elementType)
+		return createEmptyArray(elementType), nil
 	}
 
 	data := dynamicData[offset:]
-	elementSize := elementType.Size()
+	elementSize := elementType.Size(p.width)
 
-	// For .datc64 files, foreign key arrays use 16-byte slots when state tracking is enabled
-	if len(state) > 0 && state[0] != nil && p.width == Width64 && (elementType == TypeForeignRow || elementType == TypeEnumRow) {
-		elementSize = 16
-	}
-
-	// Track offset usage and validate sequential access if state is provided
-	if len(state) > 0 && state[0] != nil {
-		err := p.trackOffsetUsage(state[0], int(offset), fmt.Sprintf("array[%d]", count))
-		if err != nil {
-			return nil, err
-		}
+	if state != nil && p.width == Width64 && (elementType == TypeForeignRow || elementType == TypeEnumRow) {
+		elementSize = ElementSize64BitForeignRow
 	}
 
 	if elementType == TypeString {
-		// String arrays are arrays of offsets, not the strings themselves
-		if len(state) > 0 && state[0] != nil {
-			result, bytesRead, err := p.readStringArray(data, dynamicData, count, state[0])
-			if err != nil {
-				return nil, err
-			}
-			p.updateLastOffset(state[0], int(offset), bytesRead)
-			return result, nil
-		} else {
-			result, _, err := p.readStringArray(data, dynamicData, count)
-			return result, err
+		result, err := p.readStringArray(data, dynamicData, count, state)
+		if err != nil {
+			return nil, err
 		}
+		return result, nil
 	}
 
 	totalSize := int(count) * elementSize
 	if totalSize > len(data) {
-		return nil, fmt.Errorf("array data exceeds available data: need %d bytes, have %d", totalSize, len(data))
+		return nil, fmt.Errorf("array: data exceeds available data (need %d bytes, have %d)", totalSize, len(data))
 	}
 
 	result, err := p.readTypedArray(data[:totalSize], count, elementType)
@@ -794,40 +581,46 @@ func (p *DATParser) ReadArray(dynamicData []byte, offset uint64, count uint64, e
 		return nil, err
 	}
 
-	// Update offset tracking if state is provided
-	if len(state) > 0 && state[0] != nil {
-		p.updateLastOffset(state[0], int(offset), totalSize)
-	}
-
 	return result, nil
 }
 
-// readStringArray reads an array of string offsets and returns the actual strings
-func (p *DATParser) readStringArray(data []byte, dynamicData []byte, count uint64, state ...*parseState) ([]string, int, error) {
-	// Each string offset is 4 bytes (uint32)
-	offsetSize := 4
-	totalOffsetBytes := int(count) * offsetSize
-
-	if totalOffsetBytes > len(data) {
-		return nil, 0, fmt.Errorf("string array offsets exceed available data")
+func (p *DATParser) readStringArray(data []byte, dynamicData []byte, count uint64, state *parseState) ([]string, error) {
+	uint32Size := TypeUint32.Size(p.width)
+	requiredBytes := int(count) * uint32Size
+	if requiredBytes > len(data) {
+		return nil, fmt.Errorf("string array: offsets exceed available data")
 	}
 
 	strings := make([]string, count)
 	for i := uint64(0); i < count; i++ {
-		offsetData := data[i*4 : (i+1)*4]
-		offset := uint64(binary.LittleEndian.Uint32(offsetData))
-
-		str, err := p.ReadString(dynamicData, offset, state...)
+		offset := uint64(binary.LittleEndian.Uint32(data[i*uint64(uint32Size):]))
+		str, err := p.ReadString(dynamicData, offset, state)
 		if err != nil {
-			return nil, 0, fmt.Errorf("reading string at index %d: %w", i, err)
+			return nil, fmt.Errorf("string array: reading string at index %d: %w", i, err)
 		}
 		strings[i] = str
 	}
 
-	return strings, totalOffsetBytes, nil
+	return strings, nil
 }
 
-// readTypedArray reads a typed array from binary data
+// Helper functions for reading binary data using direct binary.LittleEndian calls
+func readUint32At(data []byte, offset uint64) uint32 {
+	return binary.LittleEndian.Uint32(data[offset:])
+}
+
+func readUint64At(data []byte, offset uint64) uint64 {
+	return binary.LittleEndian.Uint64(data[offset:])
+}
+
+func readFloat32At(data []byte, offset uint64) float32 {
+	return math.Float32frombits(binary.LittleEndian.Uint32(data[offset:]))
+}
+
+func readFloat64At(data []byte, offset uint64) float64 {
+	return math.Float64frombits(binary.LittleEndian.Uint64(data[offset:]))
+}
+
 func (p *DATParser) readTypedArray(data []byte, count uint64, elementType FieldType) (interface{}, error) {
 	switch elementType {
 	case TypeBool:
@@ -839,359 +632,171 @@ func (p *DATParser) readTypedArray(data []byte, count uint64, elementType FieldT
 
 	case TypeInt16:
 		result := make([]int16, count)
+		elementSize := uint64(TypeInt16.Size(p.width))
 		for i := uint64(0); i < count; i++ {
-			offset := i * 2
+			offset := i * elementSize
 			result[i] = int16(binary.LittleEndian.Uint16(data[offset:]))
 		}
 		return result, nil
 
 	case TypeUint16:
 		result := make([]uint16, count)
+		elementSize := uint64(TypeUint16.Size(p.width))
 		for i := uint64(0); i < count; i++ {
-			offset := i * 2
+			offset := i * elementSize
 			result[i] = binary.LittleEndian.Uint16(data[offset:])
 		}
 		return result, nil
 
 	case TypeInt32:
 		result := make([]int32, count)
+		elementSize := uint64(TypeInt32.Size(p.width))
 		for i := uint64(0); i < count; i++ {
-			offset := i * 4
-			result[i] = int32(binary.LittleEndian.Uint32(data[offset:]))
+			offset := i * elementSize
+			result[i] = int32(readUint32At(data, offset))
 		}
 		return result, nil
 
 	case TypeUint32:
 		result := make([]uint32, count)
+		elementSize := uint64(TypeUint32.Size(p.width))
 		for i := uint64(0); i < count; i++ {
-			offset := i * 4
-			result[i] = binary.LittleEndian.Uint32(data[offset:])
+			offset := i * elementSize
+			result[i] = readUint32At(data, offset)
 		}
 		return result, nil
 
 	case TypeInt64:
 		result := make([]int64, count)
+		elementSize := uint64(TypeInt64.Size(p.width))
 		for i := uint64(0); i < count; i++ {
-			offset := i * 8
-			result[i] = int64(binary.LittleEndian.Uint64(data[offset:]))
+			offset := i * elementSize
+			result[i] = int64(readUint64At(data, offset))
 		}
 		return result, nil
 
 	case TypeUint64:
 		result := make([]uint64, count)
+		elementSize := uint64(TypeUint64.Size(p.width))
 		for i := uint64(0); i < count; i++ {
-			offset := i * 8
-			result[i] = binary.LittleEndian.Uint64(data[offset:])
+			offset := i * elementSize
+			result[i] = readUint64At(data, offset)
 		}
 		return result, nil
 
 	case TypeFloat32:
 		result := make([]float32, count)
+		elementSize := uint64(TypeFloat32.Size(p.width))
 		for i := uint64(0); i < count; i++ {
-			offset := i * 4
-			bits := binary.LittleEndian.Uint32(data[offset:])
-			result[i] = *(*float32)(unsafe.Pointer(&bits))
+			offset := i * elementSize
+			result[i] = readFloat32At(data, offset)
 		}
 		return result, nil
 
 	case TypeFloat64:
 		result := make([]float64, count)
+		elementSize := uint64(TypeFloat64.Size(p.width))
 		for i := uint64(0); i < count; i++ {
-			offset := i * 8
-			bits := binary.LittleEndian.Uint64(data[offset:])
-			result[i] = *(*float64)(unsafe.Pointer(&bits))
+			offset := i * elementSize
+			result[i] = readFloat64At(data, offset)
 		}
 		return result, nil
 
 	case TypeRow, TypeForeignRow, TypeEnumRow:
 		result := make([]*uint32, count)
-		// For .datc64 files, foreign key arrays use 16-byte slots even though data is only 4 bytes
-		// This matches poe-dat-viewer's behavior where KEY_FOREIGN has different size
-		elementStride := 4
-		if p.width == Width64 && (elementType == TypeForeignRow || elementType == TypeEnumRow) {
-			// Foreign keys in 64-bit files use 16-byte alignment
-			elementStride = 16
-		}
+		elementStride := elementType.Size(p.width)
 
+		uint32Size := TypeUint32.Size(p.width)
 		for i := uint64(0); i < count; i++ {
 			offset := i * uint64(elementStride)
-			if int(offset+4) > len(data) {
-				return nil, fmt.Errorf("array element %d exceeds data bounds", i)
+			if int(offset+uint64(uint32Size)) > len(data) {
+				return nil, fmt.Errorf("array: element %d exceeds data bounds", i)
 			}
-			value := binary.LittleEndian.Uint32(data[offset : offset+4])
+			value := binary.LittleEndian.Uint32(data[offset : offset+uint64(uint32Size)])
 
-			// Enhanced validation for foreign key values
 			if p.isValidForeignKeyValue(value) {
 				result[i] = &value
 			} else {
-				result[i] = nil // Filter out invalid values
+				result[i] = nil
 			}
 		}
 		return result, nil
 
 	default:
-		return nil, fmt.Errorf("unsupported array element type: %s", elementType)
+		return nil, fmt.Errorf("array: unsupported element type %s", elementType)
 	}
 }
 
-// trackOffsetUsage validates offset usage patterns and tracks consumption
-func (p *DATParser) trackOffsetUsage(state *parseState, offset int, purpose string) error {
-	if offset < state.lastOffset {
-		// Check if this offset was already used (reused data)
-		if state.seenOffsets[offset] {
-			// Reused data is acceptable
-			return nil
-		}
-
-		// Backwards jump to new data is problematic
-		if p.options.StrictMode {
-			return fmt.Errorf("offset went backwards before %s %s in row %d",
-				purpose, state.currentField, state.currentRow)
-		}
-	} else if offset > state.lastOffset {
-		// Gap in offset usage
-		gap := offset - state.lastOffset
-		if p.options.StrictMode && gap > 0 {
-			return fmt.Errorf("skipped %d bytes before %s %s in row %d",
-				gap, purpose, state.currentField, state.currentRow)
-		}
-	}
-
-	return nil
-}
-
-// updateLastOffset updates the last accessed offset and marks it as seen
-func (p *DATParser) updateLastOffset(state *parseState, offset int, length int) {
-	if offset >= state.lastOffset {
-		state.lastOffset = offset + length
-	}
-	state.seenOffsets[offset] = true
-}
-
-// createEmptyArray creates an empty array of the appropriate type
-func (p *DATParser) createEmptyArray(elementType FieldType) (interface{}, error) {
-	switch elementType {
-	case TypeBool:
-		return []bool{}, nil
-	case TypeString:
-		return []string{}, nil
-	case TypeInt16:
-		return []int16{}, nil
-	case TypeUint16:
-		return []uint16{}, nil
-	case TypeInt32:
-		return []int32{}, nil
-	case TypeUint32:
-		return []uint32{}, nil
-	case TypeInt64:
-		return []int64{}, nil
-	case TypeUint64:
-		return []uint64{}, nil
-	case TypeFloat32:
-		return []float32{}, nil
-	case TypeFloat64:
-		return []float64{}, nil
-	case TypeRow, TypeForeignRow, TypeEnumRow:
-		return []*uint32{}, nil
-	default:
-		return []interface{}{}, nil
-	}
-}
-
-// isValidForeignKeyValue validates foreign key values to filter out garbage data
 func (p *DATParser) isValidForeignKeyValue(value uint32) bool {
-	// Standard null sentinel values
-	if value == NullRowSentinel {
+	if value == NullRowSentinel || value == 0 {
 		return false
 	}
 
-	// Zero is often used as null/empty reference
-	if value == 0 {
-		return false
-	}
-
-	// Very large values (>100M) are likely garbage data or encoding errors
-	// Based on analysis of poe-dat-viewer, reasonable table indices are much smaller
-	maxReasonableIndex := uint32(100_000_000)
-	if value > maxReasonableIndex {
-		return false
-	}
-
-	// Values with suspicious bit patterns (all 1s in various byte positions)
-	// These often indicate uninitialized memory or encoding errors
-	suspiciousPatterns := []uint32{
-		0xFFFFFFFF, // All bits set
-		0xCDCDCDCD, // Debug heap pattern
-		0xCCCCCCCC, // Debug heap pattern
-		0xDDDDDDDD, // Debug freed memory
-		0xFEEEFEEE, // Debug pattern
-	}
-
-	for _, pattern := range suspiciousPatterns {
-		if value == pattern {
-			return false
-		}
-	}
-
-	return true
+	return value <= MaxReasonableForeignKeyIndex
 }
 
-// validateArraySize validates array size and logs warnings for suspicious arrays
 func (p *DATParser) validateArraySize(count uint64, column *TableColumn, state *parseState) error {
 	fieldName := "unknown"
 	if column.Name != nil {
 		fieldName = *column.Name
 	}
 
-	// Check against general array limit
 	if count > uint64(p.options.MaxArrayCount) {
-		return fmt.Errorf("array count %d exceeds maximum %d for field %s", count, p.options.MaxArrayCount, fieldName)
+		return fmt.Errorf("field %s: array count %d exceeds maximum %d", fieldName, count, p.options.MaxArrayCount)
 	}
 
-	// Check against junction table limit for foreign key arrays
-	if column.References != nil && count > uint64(p.options.MaxArrayCount) {
-		return fmt.Errorf("junction table array count %d exceeds maximum %d for field %s",
-			count, p.options.MaxArrayCount, fieldName)
-	}
-
-	// Log warnings for arrays exceeding the warning threshold
 	if count > uint64(p.options.ArraySizeWarningThreshold) {
-		var logContext []interface{}
-		logContext = append(logContext, "field", fieldName, "count", count, "threshold", p.options.ArraySizeWarningThreshold)
-
-		if state != nil {
-			logContext = append(logContext, "row", state.currentRow)
-		}
-
-		if column.References != nil {
-			logContext = append(logContext, "references_table", *column.References, "creates_junction_table", true)
-		}
-
-		slog.Debug("Large array detected", logContext...)
-	}
-
-	// Debug logging for arrays that might indicate parsing issues
-	if count > 10000 {
-		var logContext []interface{}
-		logContext = append(logContext, "field", fieldName, "count", count, "suspicious", true)
-
-		if state != nil {
-			logContext = append(logContext, "row", state.currentRow)
-		}
-
-		slog.Debug("Suspicious array size detected", logContext...)
+		slog.Debug("Large array detected", "field", fieldName, "count", count)
 	}
 
 	return nil
 }
 
-// findAlignedBoundaryMarker finds the boundary marker that aligns with row boundaries
-// Based on poe-dat-viewer's findAlignedSequence implementation
-// This ensures boundary markers align with actual row structure to prevent "offset exceeds row data length" errors
 func (p *DATParser) findAlignedBoundaryMarker(data []byte, rowCount int) int {
-	boundarySequence := []byte(BoundaryMarker)
+	boundarySequence := BoundaryMarker
 	fromIndex := 0
 
-	// Handle edge case: if rowCount is 0, any boundary marker is valid
 	if rowCount == 0 {
 		return bytes.Index(data, boundarySequence)
 	}
 
 	for {
-		// Find next occurrence of boundary marker
 		idx := bytes.Index(data[fromIndex:], boundarySequence)
 		if idx == -1 {
-			return -1 // No boundary marker found
+			return -1
 		}
 
-		// Adjust index to absolute position in data
 		idx += fromIndex
 
-		// Check alignment: boundary position must be divisible by row count
-		// This ensures the boundary aligns with row boundaries
 		if idx%rowCount == 0 {
 			return idx
 		}
 
-		// If not aligned, continue searching from next position
 		fromIndex = idx + 1
 	}
 }
 
-// FieldBounds represents the discovered offset boundaries for a field
-type FieldBounds struct {
-	Offset    int
-	EndOffset int
-	FieldType FieldType
-	IsArray   bool
+// emptyArrayMap maps field types to their empty slice constructors
+var emptyArrayMap = map[FieldType]func() interface{}{
+	TypeBool:       func() interface{} { return []bool{} },
+	TypeString:     func() interface{} { return []string{} },
+	TypeInt16:      func() interface{} { return []int16{} },
+	TypeUint16:     func() interface{} { return []uint16{} },
+	TypeInt32:      func() interface{} { return []int32{} },
+	TypeUint32:     func() interface{} { return []uint32{} },
+	TypeInt64:      func() interface{} { return []int64{} },
+	TypeUint64:     func() interface{} { return []uint64{} },
+	TypeFloat32:    func() interface{} { return []float32{} },
+	TypeFloat64:    func() interface{} { return []float64{} },
+	TypeRow:        func() interface{} { return []*uint32{} },
+	TypeForeignRow: func() interface{} { return []*uint32{} },
+	TypeEnumRow:    func() interface{} { return []*uint32{} },
 }
 
-// discoverFieldOffsets implements EXACT poe-dat-viewer offset calculation
-// This mirrors their importHeaders function with static offset calculation and no validation
-func (p *DATParser) discoverFieldOffsets(rowData []byte, schema *TableSchema, maxFields int) ([]FieldBounds, error) {
-	fieldOffsets := make([]FieldBounds, maxFields)
-
-	// poe-dat-viewer approach: static offset calculation using getHeaderLength
-	currentOffset := 0
-
-	for i := 0; i < maxFields && i < len(schema.Columns); i++ {
-		column := schema.Columns[i]
-
-		// Calculate field size using poe-dat-viewer's getHeaderLength logic exactly
-		var fieldSize int
-		if column.Array {
-			fieldSize = 16 // FIELD_SIZE.ARRAY - always 16 bytes
-		} else {
-			switch column.Type {
-			case TypeBool:
-				fieldSize = 1 // FIELD_SIZE.BOOL
-			// TypeInt8/TypeUint8 not defined in schema, starting from 16-bit
-			case TypeInt16, TypeUint16:
-				fieldSize = 2 // FIELD_SIZE.SHORT
-			case TypeInt32, TypeUint32, TypeFloat32, TypeEnumRow:
-				fieldSize = 4 // FIELD_SIZE.LONG
-			case TypeInt64, TypeUint64, TypeFloat64:
-				fieldSize = 8 // FIELD_SIZE.LONGLONG
-			case TypeString:
-				fieldSize = 8 // FIELD_SIZE.STRING
-			case TypeRow:
-				fieldSize = 8 // FIELD_SIZE.KEY
-			case TypeForeignRow:
-				fieldSize = 16 // FIELD_SIZE.KEY_FOREIGN
-			default:
-				fieldSize = 4 // Default fallback
-			}
-
-			// CRITICAL: Handle interval fields - they take TWICE the space
-			// This matches poe-dat-viewer's: const count = (type.interval) ? 2 : 1
-			if column.Interval {
-				fieldSize *= 2
-			}
-		}
-
-		// Record field boundaries (poe-dat-viewer style - no validation, pure static calculation)
-		fieldOffsets[i].Offset = currentOffset
-		fieldOffsets[i].EndOffset = currentOffset + fieldSize
-		fieldOffsets[i].FieldType = column.Type
-		fieldOffsets[i].IsArray = column.Array
-
-		// Advance offset (poe-dat-viewer: offset += getHeaderLength())
-		currentOffset += fieldSize
-
-		// Check bounds
-		if currentOffset > len(rowData) {
-			break
-		}
+// createEmptyArray creates an empty slice of the appropriate type based on the field type
+func createEmptyArray(elementType FieldType) interface{} {
+	if constructor, ok := emptyArrayMap[elementType]; ok {
+		return constructor()
 	}
-
-	return fieldOffsets, nil
-}
-
-// readFieldWithDynamicSize reads a field value with dynamically calculated size boundaries
-func (p *DATParser) readFieldWithDynamicSize(fieldData []byte, column *TableColumn, dynamicData []byte, state *parseState) (interface{}, error) {
-	// Use the existing field reading logic but with exact field boundaries
-	if column.Array {
-		return p.readArrayField(fieldData, column, dynamicData, state)
-	}
-	return p.readScalarField(fieldData, column, dynamicData, state)
+	return []interface{}{}
 }

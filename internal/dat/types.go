@@ -2,7 +2,6 @@ package dat
 
 import (
 	"path"
-	"reflect"
 	"strings"
 )
 
@@ -71,14 +70,13 @@ func (ft FieldType) Valid() bool {
 
 // Size returns the fixed size in bytes for this field type in DAT files
 // Returns 0 for variable-length types (strings, arrays)
-func (ft FieldType) Size() int {
-	// Default to 64-bit sizes for backward compatibility
-	return ft.SizeForWidth(Width64)
-}
+// If width is provided, it uses that width, otherwise defaults to 64-bit for backward compatibility
+func (ft FieldType) Size(width ...ParserWidth) int {
+	var w ParserWidth = Width64 // Default to 64-bit for backward compatibility
+	if len(width) > 0 {
+		w = width[0]
+	}
 
-// SizeForWidth returns the size in bytes for this field type based on parser width
-// Fixed to match actual .datc64 format based on poe-dat-viewer reference implementation
-func (ft FieldType) SizeForWidth(width ParserWidth) int {
 	switch ft {
 	case TypeBool:
 		return 1
@@ -97,7 +95,7 @@ func (ft FieldType) SizeForWidth(width ParserWidth) int {
 	case TypeString:
 		return 8 // FIELD_SIZE.STRING - always 8 bytes like poe-dat-viewer
 	case TypeLongID:
-		if width == Width32 {
+		if w == Width32 {
 			return 8 // 32-bit: 8-byte LongID
 		}
 		return 16 // 64-bit: 16-byte LongID
@@ -106,53 +104,6 @@ func (ft FieldType) SizeForWidth(width ParserWidth) int {
 	default:
 		return 0
 	}
-}
-
-// GoType returns the corresponding Go reflect.Type for this FieldType
-func (ft FieldType) GoType() reflect.Type {
-	switch ft {
-	case TypeBool:
-		return reflect.TypeOf(bool(false))
-	case TypeString:
-		return reflect.TypeOf(string(""))
-	case TypeInt16:
-		return reflect.TypeOf(int16(0))
-	case TypeUint16:
-		return reflect.TypeOf(uint16(0))
-	case TypeInt32:
-		return reflect.TypeOf(int32(0))
-	case TypeUint32:
-		return reflect.TypeOf(uint32(0))
-	case TypeInt64:
-		return reflect.TypeOf(int64(0))
-	case TypeUint64:
-		return reflect.TypeOf(uint64(0))
-	case TypeFloat32:
-		return reflect.TypeOf(float32(0))
-	case TypeFloat64:
-		return reflect.TypeOf(float64(0))
-	case TypeRow, TypeForeignRow, TypeEnumRow:
-		// Row references use nullable uint32 pointers for null handling (0xfefe_fefe sentinel)
-		return reflect.TypeOf((*uint32)(nil))
-	case TypeLongID:
-		// LongID references use nullable uint64 pointers for null handling
-		return reflect.TypeOf((*uint64)(nil))
-	case TypeArray:
-		// Arrays are handled dynamically based on the underlying element type
-		return reflect.TypeOf([]interface{}{})
-	default:
-		return reflect.TypeOf(interface{}(nil))
-	}
-}
-
-// IsArray returns true if this field type represents an array
-func (ft FieldType) IsArray(array bool) bool {
-	return array || ft == TypeArray
-}
-
-// IsReference returns true if this field type represents a row reference
-func (ft FieldType) IsReference() bool {
-	return ft == TypeRow || ft == TypeForeignRow || ft == TypeEnumRow || ft == TypeLongID
 }
 
 // DatFile represents the structure of a parsed DAT file
@@ -167,7 +118,6 @@ type DatFile struct {
 	FixedData []byte
 
 	// DynamicData contains the variable-length data section (strings, arrays)
-	// Starts after the boundary marker (\xbb\xbb\xbb\xbb\xbb\xbb\xbb\xbb)
+	// Starts after the boundary marker (see BoundaryMarker in parser.go)
 	DynamicData []byte
 }
-

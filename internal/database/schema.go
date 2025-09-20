@@ -112,7 +112,7 @@ func (dm *DDLManager) generateColumnDDL(column *dat.TableColumn, columnName stri
 	if column.References != nil && !column.Array {
 		fkDDL, err := dm.generateForeignKeyDDL(columnName, column.References)
 		if err != nil {
-			return "", "", fmt.Errorf("generating foreign key for %s: %w", columnName, err)
+			return "", "", err
 		}
 		foreignKeyDDL = fkDDL
 	}
@@ -145,11 +145,11 @@ func (dm *DDLManager) mapDATTypeToSQL(fieldType dat.FieldType) (string, error) {
 // generateForeignKeyDDL generates a foreign key constraint with version-aware table names
 func (dm *DDLManager) generateForeignKeyDDL(columnName string, ref *dat.ColumnReference) (string, error) {
 	if ref == nil {
-		return "", fmt.Errorf("column reference cannot be nil")
+		return "", fmt.Errorf("nil reference")
 	}
 
 	if ref.Table == "" {
-		return "", fmt.Errorf("referenced table cannot be empty")
+		return "", fmt.Errorf("empty table")
 	}
 
 	// Generate unified referenced table name
@@ -170,11 +170,11 @@ func (dm *DDLManager) generateForeignKeyDDL(columnName string, ref *dat.ColumnRe
 // generateJunctionTableDDL generates CREATE TABLE SQL for a junction table with version-aware table names
 func (dm *DDLManager) generateJunctionTableDDL(tableName, columnName string, ref *dat.ColumnReference) (string, error) {
 	if ref == nil {
-		return "", fmt.Errorf("column reference cannot be nil")
+		return "", fmt.Errorf("nil reference")
 	}
 
 	if ref.Table == "" {
-		return "", fmt.Errorf("referenced table cannot be empty")
+		return "", fmt.Errorf("empty table")
 	}
 
 	// Generate junction table name: {main_table}_{column}_junction
@@ -238,7 +238,7 @@ func (dm *DDLManager) CreateTableSchema(ctx context.Context, table *dat.TableSch
 		// Create junction table for this column (no filtering by referenced table)
 		junctionDDL, err := dm.generateJunctionTableDDL(tableName, columnName, column.References)
 		if err != nil {
-			return fmt.Errorf("generating junction table DDL for %s.%s: %w", tableName, columnName, err)
+			return err
 		}
 
 		if _, err := dm.db.Exec(ctx, junctionDDL); err != nil {
@@ -392,7 +392,7 @@ func (dm *DDLManager) generateTableDDLRequests(table dat.TableSchema) ([]DDLRequ
 		columnName := utils.ToSnakeCase(*column.Name)
 		junctionDDL, err := dm.generateJunctionTableDDL(tableName, columnName, column.References)
 		if err != nil {
-			return nil, fmt.Errorf("generating junction table DDL for %s.%s: %w", tableName, columnName, err)
+			return nil, err
 		}
 
 		junctionTableName := fmt.Sprintf("%s_%s_junction", tableName, columnName)
