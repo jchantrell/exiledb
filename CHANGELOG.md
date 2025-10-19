@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.1.0](https://github.com/jchantrell/exiledb/compare/v1.0.6...v1.1.0) (2025-09-20)
+
+
+### Features
+
+* consolidate array field parsing ([7f5e030](https://github.com/jchantrell/exiledb/commit/7f5e0305af180e3a3ae0ae7c15f9da404e02700b))
+* consolidate array parsing ([bdb0b57](https://github.com/jchantrell/exiledb/commit/bdb0b57ea027663c776d561278a1ce19a0f603b5))
+* consolidate scalar field parsing ([6b63521](https://github.com/jchantrell/exiledb/commit/6b63521f9e8da312673bda4fbd7f38b96d869c32))
+* consolidate string array parsing ([80591e2](https://github.com/jchantrell/exiledb/commit/80591e262cfb01fc62b5ed46548d90fdd6a05b0f))
+* consolidate string parsing ([6a7c9f4](https://github.com/jchantrell/exiledb/commit/6a7c9f4da8ff2694c9e1ea44bfd4680d0074a06b))
+* more clean up ([30735c4](https://github.com/jchantrell/exiledb/commit/30735c4e1a60b4d31d7bdd3f72355b60045eba5f))
+* update progress bar layout ([1be8fb2](https://github.com/jchantrell/exiledb/commit/1be8fb20e32e323bb82498f3cdb069ff56440198))
+
+
+### Bug Fixes
+
+* fetch files for all languages ([1f08d4d](https://github.com/jchantrell/exiledb/commit/1f08d4d759aba1e58c057587867cda84d34b228e))
+* readd dat parser opts ([b484d09](https://github.com/jchantrell/exiledb/commit/b484d09f71ede32da55b8d06204b8b032ca59cf2))
+
 ## [1.0.6](https://github.com/jchantrell/exiledb/compare/v1.0.5...v1.0.6) (2025-09-18)
 
 
