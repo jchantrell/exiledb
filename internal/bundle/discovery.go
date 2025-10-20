@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/jchantrell/exiledb/internal/cache"
+	"github.com/jchantrell/exiledb/internal/export"
 )
 
 type BytesReaderAt struct {
@@ -16,7 +17,7 @@ type BytesReaderAt struct {
 
 var ext = ".datc64"
 
-func DiscoverRequiredBundles(cache *cache.Cache, patch string, languages []string, tables []string) ([]string, error) {
+func DiscoverRequiredBundles(cache *cache.Cache, patch string, languages []string, tables []string, files []string) ([]string, error) {
 	indexPath := cache.GetIndexPath(patch)
 
 	slog.Info("Reading index file", "path", indexPath)
@@ -35,7 +36,7 @@ func DiscoverRequiredBundles(cache *cache.Cache, patch string, languages []strin
 		return nil, fmt.Errorf("parsing index bundle: %w", err)
 	}
 
-	bundleSet := GetBundleSet(index, tables, languages)
+	bundleSet := GetBundleSet(index, tables, languages, files)
 
 	var candidatePaths []string
 	for bundle := range bundleSet {
@@ -56,7 +57,7 @@ func DecompressIndexBundle(data []byte) ([]byte, error) {
 	return b.Read()
 }
 
-func GetBundleSet(index Index, tables, languages []string) map[string]bool {
+func GetBundleSet(index Index, tables, languages []string, files []string) map[string]bool {
 	bundleSet := make(map[string]bool)
 	bundleSet["_.index.bin"] = true
 
@@ -90,6 +91,37 @@ func GetBundleSet(index Index, tables, languages []string) map[string]bool {
 				if loc, err := index.GetFileInfo(filePath); err == nil {
 					bundleSet[loc.BundleName] = true
 					datFileCount++
+				}
+			}
+		}
+	}
+
+	// Add bundles for requested files
+	if len(files) > 0 {
+		// Track if we need sprite indices
+		needsSpriteIndices := false
+
+		for _, filePath := range files {
+			if loc, err := index.GetFileInfo(filePath); err == nil {
+				bundleSet[loc.BundleName] = true
+			} else {
+				slog.Warn("File not found in index", "file", filePath, "error", err)
+			}
+
+			// Check if this file is inside a sprite
+			if export.IsInsideSprite(filePath) {
+				needsSpriteIndices = true
+			}
+		}
+
+		// Add sprite index files if needed
+		if needsSpriteIndices {
+			for _, spriteList := range export.SpriteLists {
+				if loc, err := index.GetFileInfo(spriteList.Path); err == nil {
+					bundleSet[loc.BundleName] = true
+					slog.Debug("Adding sprite index file", "path", spriteList.Path, "bundle", loc.BundleName)
+				} else {
+					slog.Warn("Sprite index file not found", "path", spriteList.Path, "error", err)
 				}
 			}
 		}

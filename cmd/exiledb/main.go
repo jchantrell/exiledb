@@ -17,6 +17,7 @@ var (
 	patch      string
 	dbPath     string
 	tables     []string
+	files      []string
 	languages  []string
 	logLevel   string
 	logFormat  string
@@ -46,6 +47,9 @@ and processes them according to the latest schema to create a local database.`,
 		}
 		if cmd.Flags().Changed("tables") {
 			cfg.Tables = tables
+		}
+		if cmd.Flags().Changed("files") {
+			cfg.Files = files
 		}
 		if cmd.Flags().Changed("languages") {
 			cfg.Languages = languages
@@ -90,6 +94,7 @@ and processes them according to the latest schema to create a local database.`,
 			"database", cfg.Database,
 			"languages", cfg.Languages,
 			"tables", cfg.Tables,
+			"files", cfg.Files,
 			"log_level", cfg.LogLevel,
 			"log_format", cfg.LogFormat)
 
@@ -109,6 +114,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&patch, "patch", "p", "", "patch version to use")
 	rootCmd.PersistentFlags().StringVarP(&dbPath, "database", "d", "", "database file path")
 	rootCmd.PersistentFlags().StringSliceVar(&tables, "tables", []string{}, "comma-separated list of tables to extract")
+	rootCmd.PersistentFlags().StringSliceVar(&files, "files", []string{}, "comma-separated list of files to extract")
 	rootCmd.PersistentFlags().StringSliceVar(&languages, "languages", []string{"English"}, "comma-separated list of languages to extract")
 	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "", "log level (debug, info, warn, error)")
 	rootCmd.PersistentFlags().StringVar(&logFormat, "log-format", "", "log format (text, json)")

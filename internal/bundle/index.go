@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strings"
 )
 
 type bundleIndex struct {
@@ -228,15 +229,17 @@ type indexImpl struct {
 }
 
 // GetFileInfo returns information about a file, including which bundle contains it
+// Path lookup is case-insensitive
 func (idx *indexImpl) GetFileInfo(path string) (*FileLocation, error) {
 	files := idx.internal.files
+	lowerPath := strings.ToLower(path)
 
-	// Binary search for the file
+	// Binary search for the file (case-insensitive)
 	i := sort.Search(len(files), func(i int) bool {
-		return files[i].path >= path
+		return strings.ToLower(files[i].path) >= lowerPath
 	})
 
-	if i < len(files) && files[i].path == path {
+	if i < len(files) && strings.ToLower(files[i].path) == lowerPath {
 		file := &files[i]
 		return &FileLocation{
 			BundleName: idx.internal.bundles[file.bundleId],

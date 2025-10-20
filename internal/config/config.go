@@ -11,6 +11,7 @@ type Config struct {
 	Patch     string   `mapstructure:"patch"`
 	Database  string   `mapstructure:"database"`
 	Tables    []string `mapstructure:"tables"`
+	Files     []string `mapstructure:"files"`
 	Languages []string `mapstructure:"languages"`
 	LogLevel  string   `mapstructure:"log_level"`
 	LogFormat string   `mapstructure:"log_format"`

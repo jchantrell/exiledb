@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/jchantrell/exiledb/internal/cdn"
 	"github.com/jchantrell/exiledb/internal/dat"
 	"github.com/jchantrell/exiledb/internal/database"
+	"github.com/jchantrell/exiledb/internal/export"
 	"github.com/jchantrell/exiledb/internal/utils"
 	"github.com/spf13/cobra"
 )
@@ -26,6 +28,7 @@ type ExtractionStats struct {
 	RowsInserted     int64
 	ProcessingErrors int
 	DatabaseErrors   int
+	FilesExported    int
 }
 
 var (
@@ -78,7 +81,7 @@ extracts DAT files into a queryable SQLite database.`,
 			return fmt.Errorf("downloading index file: %w", err)
 		}
 
-		requiredBundles, err := bundle.DiscoverRequiredBundles(cache, cfg.Patch, cfg.Languages, cfg.Tables)
+		requiredBundles, err := bundle.DiscoverRequiredBundles(cache, cfg.Patch, cfg.Languages, cfg.Tables, cfg.Files)
 		if err != nil {
 			return fmt.Errorf("discovering required bundles: %w", err)
 		}
@@ -231,6 +234,33 @@ extracts DAT files into a queryable SQLite database.`,
 		}
 
 		insertProgress.Finish()
+
+		// Export files if configured
+		if len(cfg.Files) > 0 {
+			slog.Info("Exporting files", "count", len(cfg.Files))
+
+			// Create output directory for exported files
+			outputDir := filepath.Join(".", "files")
+
+			// Create exporter
+			exporter := export.NewExporter(bundleManager, outputDir)
+
+			// Create progress bar
+			fileProgress := utils.NewProgress(len(cfg.Files), showProgress)
+			fileProgressCallback := func(current int, total int, description string) {
+				fileProgress.Update(current, description)
+			}
+
+			// Export files
+			if err := exporter.ExportFiles(cfg.Files, fileProgressCallback); err != nil {
+				fileProgress.Finish()
+				slog.Error("Failed to export files", "error", err)
+			} else {
+				fileProgress.Finish()
+				stats.FilesExported = len(cfg.Files)
+			}
+		}
+
 		stats.EndTime = time.Now()
 
 		totalDuration := stats.EndTime.Sub(stats.StartTime)
@@ -250,6 +280,7 @@ extracts DAT files into a queryable SQLite database.`,
 
 		fmt.Printf("Tables processed: %d/%d (%.1f%%)\n", stats.ProcessedTables, stats.TotalTables, successRate)
 		fmt.Printf("Rows inserted: %s\n", utils.Number(stats.RowsInserted))
+		fmt.Printf("Files exported: %d\n", stats.FilesExported)
 		fmt.Printf("Processing errors: %d\n", stats.ProcessingErrors)
 		fmt.Printf("Database errors: %d\n", stats.DatabaseErrors)
 		fmt.Printf("Total duration: %.1fms\n", float64(totalDuration.Nanoseconds())/1000000.0)

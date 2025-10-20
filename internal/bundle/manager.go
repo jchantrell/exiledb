@@ -123,18 +123,20 @@ func (m *BundleManager) Close() error {
 	return nil
 }
 
-// findFileInIndex searches for a file in the loaded index
+// findFileInIndex searches for a file in the loaded index (case-insensitive)
 func (m *BundleManager) findFileInIndex(path string) *bundleFileInfo {
 	files := m.index.files
+	lowerPath := strings.ToLower(path)
 
-	// Binary search for the file
+	// Binary search for the file (case-insensitive)
 	left, right := 0, len(files)-1
 	for left <= right {
 		mid := left + (right-left)/2
-		if files[mid].path == path {
+		midPathLower := strings.ToLower(files[mid].path)
+		if midPathLower == lowerPath {
 			return &files[mid]
 		}
-		if files[mid].path < path {
+		if midPathLower < lowerPath {
 			left = mid + 1
 		} else {
 			right = mid - 1
