@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.0](https://github.com/jchantrell/exiledb/compare/v1.1.0...v1.2.0) (2025-10-20)
+
+
+### Features
+
+* file export support ([af22f3c](https://github.com/jchantrell/exiledb/commit/af22f3cb2d5f254b5e3e3cbc1cb6afd635fa9a17))
+
 ## [1.1.0](https://github.com/jchantrell/exiledb/compare/v1.0.6...v1.1.0) (2025-09-20)
 
 
