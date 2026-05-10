@@ -89,7 +89,8 @@ func (e *Exporter) loadSpriteIndices() ([][]SpriteImage, error) {
 
 		fileData, err := e.loader.GetFile(sprite.Path)
 		if err != nil {
-			return nil, fmt.Errorf("loading sprite index %s: %w", sprite.Path, err)
+			slog.Warn("Sprite index not available, skipping", "path", sprite.Path, "error", err)
+			continue
 		}
 
 		sprites, err := ParseSpriteIndex(fileData)
@@ -212,7 +213,12 @@ func (e *Exporter) exportRegularFiles(files []string, totalFiles int, processedC
 	for _, filePath := range regularFiles {
 		fileData, err := e.loader.GetFile(filePath)
 		if err != nil {
-			return *processedCount, fmt.Errorf("loading file %s: %w", filePath, err)
+			slog.Warn("Skipping file export", "path", filePath, "error", err)
+			*processedCount++
+			if progressCallback != nil {
+				progressCallback(*processedCount, totalFiles, sanitizePath(filePath))
+			}
+			continue
 		}
 
 		// Determine output path and processing

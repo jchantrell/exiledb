@@ -98,10 +98,11 @@ func (p *Progress) Finish() {
 		return
 	}
 
-	// Wait for the progress bar to finish and shutdown
+	if p.bar != nil {
+		p.bar.Abort(false)
+	}
 	p.container.Wait()
 
-	// Add space after progress bar
 	fmt.Fprintln(os.Stderr)
 }
 
