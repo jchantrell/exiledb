@@ -139,3 +139,32 @@ func IsModernPoE(version string) (bool, error) {
 	}
 	return cmp >= 0, nil
 }
+
+// IsPoE2 checks if the version is Path of Exile 2 (major version ≥ 4)
+func IsPoE2(version string) bool {
+	major, err := ParseGameVersion(version)
+	if err != nil {
+		return false
+	}
+	return major >= 4
+}
+
+// DatPath returns the correct dat file path for a table based on game version.
+// PoE2 (4.x+) stores tables under data/balance/, PoE1 under data/.
+func DatPath(patch, tableName, extension string) string {
+	lower := strings.ToLower(tableName)
+	if IsPoE2(patch) {
+		return fmt.Sprintf("data/balance/%s%s", lower, extension)
+	}
+	return fmt.Sprintf("data/%s%s", lower, extension)
+}
+
+// DatLangPath returns the correct language-specific dat file path based on game version.
+func DatLangPath(patch, language, tableName, extension string) string {
+	lower := strings.ToLower(tableName)
+	langLower := strings.ToLower(language)
+	if IsPoE2(patch) {
+		return fmt.Sprintf("data/%s/balance/%s%s", langLower, lower, extension)
+	}
+	return fmt.Sprintf("data/%s/%s%s", langLower, lower, extension)
+}

@@ -9,6 +9,7 @@ import (
 
 	"github.com/jchantrell/exiledb/internal/cache"
 	"github.com/jchantrell/exiledb/internal/export"
+	"github.com/jchantrell/exiledb/internal/utils"
 )
 
 type BytesReaderAt struct {
@@ -36,7 +37,7 @@ func DiscoverRequiredBundles(cache *cache.Cache, patch string, languages []strin
 		return nil, fmt.Errorf("parsing index bundle: %w", err)
 	}
 
-	bundleSet := GetBundleSet(index, tables, languages, files)
+	bundleSet := GetBundleSet(index, patch, tables, languages, files)
 
 	var candidatePaths []string
 	for bundle := range bundleSet {
@@ -57,7 +58,7 @@ func DecompressIndexBundle(data []byte) ([]byte, error) {
 	return b.Read()
 }
 
-func GetBundleSet(index Index, tables, languages []string, files []string) map[string]bool {
+func GetBundleSet(index Index, patch string, tables, languages []string, files []string) map[string]bool {
 	bundleSet := make(map[string]bool)
 	bundleSet["_.index.bin"] = true
 
@@ -66,8 +67,7 @@ func GetBundleSet(index Index, tables, languages []string, files []string) map[s
 
 	if len(tables) > 0 {
 		for _, table := range tables {
-			lowerTableName := strings.ToLower(table)
-			path := fmt.Sprintf("data/%s%s", lowerTableName, ext)
+			path := utils.DatPath(patch, table, ext)
 			if loc, err := index.GetFileInfo(path); err == nil {
 				bundleSet[loc.BundleName] = true
 			} else {
@@ -78,7 +78,7 @@ func GetBundleSet(index Index, tables, languages []string, files []string) map[s
 				if language == "English" {
 					continue
 				}
-				langPath := fmt.Sprintf("data/%s/%s%s", strings.ToLower(language), lowerTableName, ext)
+				langPath := utils.DatLangPath(patch, language, table, ext)
 				if loc, err := index.GetFileInfo(langPath); err == nil {
 					bundleSet[loc.BundleName] = true
 				}

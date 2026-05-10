@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"time"
 
 	"github.com/jchantrell/exiledb/internal/bundle"
@@ -167,11 +166,10 @@ extracts DAT files into a queryable SQLite database.`,
 
 			processedCount++
 			insertProgress.Update(processedCount, datSchema.Name)
-			lowerTableName := strings.ToLower(datSchema.Name)
 
 			for _, language := range cfg.Languages {
-				basePath := fmt.Sprintf("data/%s%s", lowerTableName, ext)
-				languagePath := fmt.Sprintf("data/%s/%s%s", strings.ToLower(language), lowerTableName, ext)
+				basePath := utils.DatPath(cfg.Patch, datSchema.Name, ext)
+				languagePath := utils.DatLangPath(cfg.Patch, language, datSchema.Name, ext)
 
 				langPathExists := bundleManager.FileExists(languagePath)
 				basePathExists := bundleManager.FileExists(basePath)
