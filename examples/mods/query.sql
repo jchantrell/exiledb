@@ -2,13 +2,13 @@
 SELECT
   m.name AS mod,
   mf.id AS family,
-  s1.text as stat1,
+  s1.id as stat1,
   s1c.name as stat1_category,
-  s2.text as stat2,
+  s2.id as stat2,
   s2c.name as stat2_category,
-  s3.text as stat3,
+  s3.id as stat3,
   s3c.name as stat3_category,
-  s4.text as stat4,
+  s4.id as stat4,
   s4c.name as stat4_category
 FROM mods m
 JOIN mods_families_junction mfj ON m._language = mfj._language AND m._index = mfj._parent_index
