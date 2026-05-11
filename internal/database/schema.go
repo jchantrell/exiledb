@@ -50,12 +50,13 @@ func (dm *DDLManager) GenerateTableDDL(table *dat.TableSchema) (string, error) {
 
 	// Add schema-defined columns
 	for i, column := range table.Columns {
+		var columnName string
 		if column.Name == nil {
-			// Skip unnamed columns
-			continue
+			columnName = fmt.Sprintf("unknown%d", i)
+		} else {
+			columnName = utils.ToSnakeCase(*column.Name)
 		}
 
-		columnName := utils.ToSnakeCase(*column.Name)
 		columnDDL, fkDDL, err := dm.generateColumnDDL(&column, columnName)
 		if err != nil {
 			return "", fmt.Errorf("generating column %d (%s): %w", i, columnName, err)

@@ -123,17 +123,18 @@ func (bi *BulkInserter) generateInsertSQL(schema *dat.TableSchema) (string, []st
 	placeholders := []string{"?", "?"}
 
 	// Add schema-defined columns (excluding arrays with foreign keys)
-	for _, column := range schema.Columns {
-		if column.Name == nil {
-			continue
-		}
-
+	for i, column := range schema.Columns {
 		// Skip array columns with foreign keys (they go to junction tables)
 		if column.Array && column.References != nil {
 			continue
 		}
 
-		columnName := utils.ToSnakeCase(*column.Name)
+		var columnName string
+		if column.Name == nil {
+			columnName = fmt.Sprintf("unknown%d", i)
+		} else {
+			columnName = utils.ToSnakeCase(*column.Name)
+		}
 		unquotedColumns = append(unquotedColumns, columnName)
 		quotedColumns = append(quotedColumns, quoteSQLIdentifier(columnName))
 		placeholders = append(placeholders, "?")
@@ -206,6 +207,10 @@ func (bi *BulkInserter) buildRowValues(columnOrder []string, tableData *TableDat
 					originalFieldName = *tableData.Schema.Columns[j].Name
 					break
 				}
+				if tableData.Schema.Columns[j].Name == nil && fmt.Sprintf("unknown%d", j) == columnName {
+					originalFieldName = "Unknown" + fmt.Sprintf("%d", j)
+					break
+				}
 			}
 
 			if originalFieldName != "" {
@@ -233,6 +238,10 @@ func (bi *BulkInserter) processColumnValue(columnName string, value interface{},
 	var column *dat.TableColumn
 	for i := range schema.Columns {
 		if schema.Columns[i].Name != nil && utils.ToSnakeCase(*schema.Columns[i].Name) == columnName {
+			column = &schema.Columns[i]
+			break
+		}
+		if schema.Columns[i].Name == nil && fmt.Sprintf("unknown%d", i) == columnName {
 			column = &schema.Columns[i]
 			break
 		}
