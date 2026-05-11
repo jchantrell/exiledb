@@ -1,4 +1,4 @@
-patch: "3.26.0.15"
+patch: "4.4.0.13"
 database: "exile.db"
 log_format: text
 log_level: info
@@ -20,4 +20,3 @@ tables:
   - PassiveSkillStatCategories
 files:
   - art/uiimages1.txt
-  - Art/2DItems/Armours/Boots/AlberonsWarpath.dds
