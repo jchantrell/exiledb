@@ -13,6 +13,15 @@ See [releases](https://github.com/jchantrell/exiledb/releases) for pre-built bin
 go install github.com/jchantrell/exiledb/cmd/exiledb@latest
 ```
 
+To build and install from source:
+
+```bash
+git clone https://github.com/jchantrell/exiledb.git
+cd exiledb
+go build -o exiledb ./cmd/exiledb/
+sudo mv exiledb /usr/local/bin/
+```
+
 ## Assets
 I do not own any of the assets utilised in this project. In most cases they are taken from Path of Exile's game files or website dynamically and belong to Grinding Gear Games as a result. If you are the owner of an asset used in this application and wish for it to be removed, please reach out to me via my GitHub email.
 
