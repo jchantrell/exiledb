@@ -164,7 +164,7 @@ func DatLangPath(patch, language, tableName, extension string) string {
 	lower := strings.ToLower(tableName)
 	langLower := strings.ToLower(language)
 	if IsPoE2(patch) {
-		return fmt.Sprintf("data/%s/balance/%s%s", langLower, lower, extension)
+		return fmt.Sprintf("data/balance/%s/%s%s", langLower, lower, extension)
 	}
 	return fmt.Sprintf("data/%s/%s%s", langLower, lower, extension)
 }

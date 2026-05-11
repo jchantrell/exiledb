@@ -171,20 +171,19 @@ extracts DAT files into a queryable SQLite database.`,
 				basePath := utils.DatPath(cfg.Patch, datSchema.Name, ext)
 				languagePath := utils.DatLangPath(cfg.Patch, language, datSchema.Name, ext)
 
-				langPathExists := bundleManager.FileExists(languagePath)
-				basePathExists := bundleManager.FileExists(basePath)
-
-				if !langPathExists && !basePathExists {
-					slog.Debug("File does not exist", "lang", languagePath, "base", basePath)
-					continue
-				}
-
-				path := ""
-
-				if langPathExists {
-					path = languagePath
-				} else {
+				var path string
+				if language == "English" {
+					if !bundleManager.FileExists(basePath) {
+						slog.Debug("File does not exist", "base", basePath)
+						continue
+					}
 					path = basePath
+				} else {
+					if !bundleManager.FileExists(languagePath) {
+						slog.Debug("File does not exist", "lang", languagePath)
+						continue
+					}
+					path = languagePath
 				}
 
 				slog.Debug("Processing DAT file", "path", path, "table", datSchema.Name)
