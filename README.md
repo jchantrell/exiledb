@@ -9,17 +9,57 @@ ExileDB is a CLI tool that makes working with Path of Exile 1 & 2's various data
 
 See [releases](https://github.com/jchantrell/exiledb/releases) for pre-built binaries for Linux and Windows or alternatively run the below command to install it directly in your CLI:
 
+Install it:
 ```bash
 go install github.com/jchantrell/exiledb/cmd/exiledb@latest
 ```
 
-To build and install from source:
-
+Build from source:
 ```bash
 git clone https://github.com/jchantrell/exiledb.git
 cd exiledb
 go build -o exiledb ./cmd/exiledb/
-sudo mv exiledb /usr/local/bin/
+```
+
+How to use:
+```bash
+# Find what you need from community schema
+https://snosme.github.io/poe-dat-viewer/
+
+# Download bundles and extract data to DB
+./exiledb extract # uses exiledb.yaml for configuration
+
+# Then run SQL queries against the DB to get your data
+./examples/items/run.sh # output is at ./examples/items/{language}.json
+[
+  {
+    "item_name": "Waystone (Tier 9)",
+    "class_name": "Waystones",
+    "class_category": "Waystone",
+    "exchange_category": null,
+    "exchange_sub_category": null,
+    "price": null,
+    "tags": [
+      "high_level_map",
+      "map_key_medium"
+    ]
+  }
+]
+./examples/mods/run.sh # output is at ./examples/mods/{language}.json
+[
+  {
+    "mod": "of Kurgal",
+    "family": "DamageRemovedFromManaBeforeLife",
+    "stat1": "base_damage_removed_from_mana_before_life_%",
+    "stat1_category": "Other Survivability Stats",
+    "stat2": null,
+    "stat2_category": null,
+    "stat3": null,
+    "stat3_category": null,
+    "stat4": null,
+    "stat4_category": null
+  },
+]
 ```
 
 ## Assets
