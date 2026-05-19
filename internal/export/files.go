@@ -245,10 +245,11 @@ func (e *Exporter) exportRegularFiles(files []string, totalFiles int, processedC
 			if strings.HasSuffix(strings.ToLower(filePath), ".txt") || strings.HasSuffix(strings.ToLower(filePath), ".text") {
 				text, err := DecodeUTF16LE(fileData)
 				if err != nil {
-					return *processedCount, fmt.Errorf("decoding UTF-16LE file %s: %w", filePath, err)
+					slog.Debug("Text file is not UTF-16LE, writing as-is", "path", filePath, "error", err)
+				} else {
+					fileData = []byte(text)
+					slog.Debug("Decoded text file to UTF-8", "path", filePath, "output", outputPath)
 				}
-				fileData = []byte(text)
-				slog.Debug("Decoded text file to UTF-8", "path", filePath, "output", outputPath)
 			}
 
 			if err := os.WriteFile(outputPath, fileData, 0644); err != nil {
