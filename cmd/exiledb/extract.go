@@ -120,24 +120,22 @@ Use --ggpk to extract directly from a Content.ggpk file instead of downloading f
 
 		bundleManager.SetLanguages(cfg.Languages)
 
-		schemaManager, err := dat.NewSchemaManager()
-		if err != nil {
-			return fmt.Errorf("loading schema manager: %w", err)
-		}
-
-		validTables, err := schemaManager.GetValidTablesForVersion(cfg.Patch)
-		if err != nil {
-			return fmt.Errorf("getting valid tables for version %s: %w", cfg.Patch, err)
-		}
-
-		datSchemas := getTableSchemas(validTables, cfg.Tables)
-
-		totalSchemas := len(datSchemas)
-		stats.TotalTables = totalSchemas
-
 		processingStartTime := time.Now()
 
-		if totalSchemas > 0 {
+		if len(cfg.Tables) > 0 {
+			schemaManager, err := dat.NewSchemaManager()
+			if err != nil {
+				return fmt.Errorf("loading schema manager: %w", err)
+			}
+
+			validTables, err := schemaManager.GetValidTablesForVersion(cfg.Patch)
+			if err != nil {
+				return fmt.Errorf("getting valid tables for version %s: %w", cfg.Patch, err)
+			}
+
+			datSchemas := getTableSchemas(validTables, cfg.Tables)
+			totalSchemas := len(datSchemas)
+			stats.TotalTables = totalSchemas
 			totalTables := totalSchemas
 			for _, table := range datSchemas {
 				for _, column := range table.Columns {
