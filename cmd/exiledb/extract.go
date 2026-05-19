@@ -133,121 +133,120 @@ Use --ggpk to extract directly from a Content.ggpk file instead of downloading f
 
 		totalSchemas := len(datSchemas)
 		stats.TotalTables = totalSchemas
-		if totalSchemas == 0 {
-			slog.Info("No tables to process")
-			return nil
-		}
-
-		totalTables := totalSchemas
-		for _, table := range datSchemas {
-			for _, column := range table.Columns {
-				if column.Name != nil && column.Array && column.References != nil {
-					totalTables++
-				}
-			}
-		}
 
 		processingStartTime := time.Now()
-		slog.Info("Creating database schemas", "count", totalTables)
 
-		schemaProgress := utils.NewProgress(totalTables, showProgress)
-		schemaProgressCallback := func(current int, total int, description string) {
-			schemaProgress.Update(current, description)
-		}
+		if totalSchemas > 0 {
+			totalTables := totalSchemas
+			for _, table := range datSchemas {
+				for _, column := range table.Columns {
+					if column.Name != nil && column.Array && column.References != nil {
+						totalTables++
+					}
+				}
+			}
 
-		ddlManager := database.NewDDLManager(db)
-		if err := ddlManager.CreateSchemas(context.Background(), datSchemas, schemaProgressCallback); err != nil {
+			slog.Info("Creating database schemas", "count", totalTables)
+
+			schemaProgress := utils.NewProgress(totalTables, showProgress)
+			schemaProgressCallback := func(current int, total int, description string) {
+				schemaProgress.Update(current, description)
+			}
+
+			ddlManager := database.NewDDLManager(db)
+			if err := ddlManager.CreateSchemas(context.Background(), datSchemas, schemaProgressCallback); err != nil {
+				schemaProgress.Finish()
+				return fmt.Errorf("creating schemas: %w", err)
+			}
+
 			schemaProgress.Finish()
-			return fmt.Errorf("creating schemas: %w", err)
-		}
 
-		schemaProgress.Finish()
-
-		slog.Info("Inserting dat files", "count", totalSchemas)
-		bulkInsertOptions := &database.BulkInsertOptions{
-			BatchSize:             1000,
-			MaxRetries:            3,
-			ArrayWarningThreshold: 5000,
-		}
-		bulkInserter := database.NewBulkInserter(db, bulkInsertOptions)
-
-		insertProgress := utils.NewProgress(totalSchemas, showProgress)
-		processedCount := 0
-		for _, datSchema := range datSchemas {
-			select {
-			case <-context.Background().Done():
-				slog.Warn("Extraction canceled")
-				return fmt.Errorf("extraction canceled")
-			default:
+			slog.Info("Inserting dat files", "count", totalSchemas)
+			bulkInsertOptions := &database.BulkInsertOptions{
+				BatchSize:             1000,
+				MaxRetries:            3,
+				ArrayWarningThreshold: 5000,
 			}
+			bulkInserter := database.NewBulkInserter(db, bulkInsertOptions)
 
-			processedCount++
-			insertProgress.Update(processedCount, datSchema.Name)
+			insertProgress := utils.NewProgress(totalSchemas, showProgress)
+			processedCount := 0
+			for _, datSchema := range datSchemas {
+				select {
+				case <-context.Background().Done():
+					slog.Warn("Extraction canceled")
+					return fmt.Errorf("extraction canceled")
+				default:
+				}
 
-			for _, language := range cfg.Languages {
-				basePath := utils.DatPath(cfg.Patch, datSchema.Name, ext)
-				languagePath := utils.DatLangPath(cfg.Patch, language, datSchema.Name, ext)
+				processedCount++
+				insertProgress.Update(processedCount, datSchema.Name)
 
-				var path string
-				if language == "English" {
-					if !bundleManager.FileExists(basePath) {
-						slog.Debug("File does not exist", "base", basePath)
+				for _, language := range cfg.Languages {
+					basePath := utils.DatPath(cfg.Patch, datSchema.Name, ext)
+					languagePath := utils.DatLangPath(cfg.Patch, language, datSchema.Name, ext)
+
+					var path string
+					if language == "English" {
+						if !bundleManager.FileExists(basePath) {
+							slog.Debug("File does not exist", "base", basePath)
+							continue
+						}
+						path = basePath
+					} else {
+						if !bundleManager.FileExists(languagePath) {
+							slog.Debug("File does not exist", "lang", languagePath)
+							continue
+						}
+						path = languagePath
+					}
+
+					slog.Debug("Processing DAT file", "path", path, "table", datSchema.Name)
+
+					datData, err := bundleManager.GetFile(path)
+					if err != nil {
+						slog.Error("Failed to get file from bundle", "path", path, "table", datSchema.Name, "error", err)
 						continue
 					}
-					path = basePath
-				} else {
-					if !bundleManager.FileExists(languagePath) {
-						slog.Debug("File does not exist", "lang", languagePath)
+
+					parser := dat.NewDATParser()
+
+					datReader := bytes.NewReader(datData)
+					parsedTable, err := parser.ParseDATFileWithFilename(context.Background(), datReader, path, &datSchema)
+					if err != nil || len(parsedTable.Rows) == 0 {
+						slog.Error("Failed to parse DAT file", "path", path, "table", datSchema.Name, "size_bytes", len(datData), "error", err)
+						stats.ProcessingErrors++
 						continue
 					}
-					path = languagePath
-				}
 
-				slog.Debug("Processing DAT file", "path", path, "table", datSchema.Name)
-
-				datData, err := bundleManager.GetFile(path)
-				if err != nil {
-					slog.Error("Failed to get file from bundle", "path", path, "table", datSchema.Name, "error", err)
-					continue
-				}
-
-				parser := dat.NewDATParser()
-
-				datReader := bytes.NewReader(datData)
-				parsedTable, err := parser.ParseDATFileWithFilename(context.Background(), datReader, path, &datSchema)
-				if err != nil || len(parsedTable.Rows) == 0 {
-					slog.Error("Failed to parse DAT file", "path", path, "table", datSchema.Name, "size_bytes", len(datData), "error", err)
-					stats.ProcessingErrors++
-					continue
-				}
-
-				rowData := make([]database.RowData, len(parsedTable.Rows))
-				for i, row := range parsedTable.Rows {
-					rowData[i] = database.RowData{
-						Index:  row.Index,
-						Values: row.Fields,
+					rowData := make([]database.RowData, len(parsedTable.Rows))
+					for i, row := range parsedTable.Rows {
+						rowData[i] = database.RowData{
+							Index:  row.Index,
+							Values: row.Fields,
+						}
 					}
-				}
 
-				tableData := &database.TableData{
-					Schema:   &datSchema,
-					Rows:     rowData,
-					Language: language,
-				}
-				if err := bulkInserter.InsertTableData(context.Background(), tableData); err != nil {
-					slog.Error("Database insert failed", "table", datSchema.Name, "error", err)
-					slog.Error("Failed to insert records", "table", datSchema.Name, "error", err)
-					stats.DatabaseErrors++
-					continue
-				}
+					tableData := &database.TableData{
+						Schema:   &datSchema,
+						Rows:     rowData,
+						Language: language,
+					}
+					if err := bulkInserter.InsertTableData(context.Background(), tableData); err != nil {
+						slog.Error("Database insert failed", "table", datSchema.Name, "error", err)
+						slog.Error("Failed to insert records", "table", datSchema.Name, "error", err)
+						stats.DatabaseErrors++
+						continue
+					}
 
-				stats.RowsInserted += int64(len(parsedTable.Rows))
+					stats.RowsInserted += int64(len(parsedTable.Rows))
 
+				}
+				stats.ProcessedTables++
 			}
-			stats.ProcessedTables++
-		}
 
-		insertProgress.Finish()
+			insertProgress.Finish()
+		}
 
 		// Export files if configured
 		if len(cfg.Files) > 0 {
