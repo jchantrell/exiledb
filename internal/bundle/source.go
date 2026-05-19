@@ -22,14 +22,21 @@ type BundleSource interface {
 
 // CacheSource reads bundles from the local disk cache (CDN-downloaded files).
 type CacheSource struct {
-	patch string
-	cache *cache.Cache
+	patch       string
+	cache       *cache.Cache
+	bundleCache map[string]*cachedBundle
+}
+
+type cachedBundle struct {
+	bundle *bundle
+	file   *os.File
 }
 
 func NewCacheSource(c *cache.Cache, patch string) *CacheSource {
 	return &CacheSource{
-		patch: patch,
-		cache: c,
+		patch:       patch,
+		cache:       c,
+		bundleCache: make(map[string]*cachedBundle),
 	}
 }
 
@@ -37,7 +44,11 @@ func (s *CacheSource) ReadIndex() ([]byte, error) {
 	return os.ReadFile(s.cache.GetIndexPath(s.patch))
 }
 
-func (s *CacheSource) ReadFileFromBundle(bundleName string, offset, size uint32) ([]byte, error) {
+func (s *CacheSource) getBundle(bundleName string) (*bundle, error) {
+	if cached, ok := s.bundleCache[bundleName]; ok {
+		return cached.bundle, nil
+	}
+
 	bundlePath := s.cache.GetBundlePath(s.patch, bundleName+".bundle.bin")
 
 	if _, err := os.Stat(bundlePath); os.IsNotExist(err) {
@@ -50,7 +61,7 @@ func (s *CacheSource) ReadFileFromBundle(bundleName string, offset, size uint32)
 
 	if strings.HasSuffix(bundlePath, ".dat64") || strings.HasSuffix(bundlePath, ".dat") {
 		if isDirect, err := isDirectDATFile(bundlePath); err == nil && isDirect {
-			return os.ReadFile(bundlePath)
+			return nil, nil
 		}
 	}
 
@@ -58,11 +69,29 @@ func (s *CacheSource) ReadFileFromBundle(bundleName string, offset, size uint32)
 	if err != nil {
 		return nil, fmt.Errorf("opening bundle file %s: %w", bundlePath, err)
 	}
-	defer bundleFile.Close()
 
 	b, err := OpenBundle(bundleFile)
 	if err != nil {
+		bundleFile.Close()
 		return nil, fmt.Errorf("opening bundle %s: %w", bundleName, err)
+	}
+
+	s.bundleCache[bundleName] = &cachedBundle{bundle: b, file: bundleFile}
+	return b, nil
+}
+
+func (s *CacheSource) ReadFileFromBundle(bundleName string, offset, size uint32) ([]byte, error) {
+	b, err := s.getBundle(bundleName)
+	if err != nil {
+		return nil, err
+	}
+
+	if b == nil {
+		bundlePath := s.cache.GetBundlePath(s.patch, bundleName+".bundle.bin")
+		if _, err := os.Stat(bundlePath); os.IsNotExist(err) {
+			bundlePath = s.cache.GetBundlePath(s.patch, bundleName)
+		}
+		return os.ReadFile(bundlePath)
 	}
 
 	data := make([]byte, size)
@@ -78,13 +107,18 @@ func (s *CacheSource) IndexCachePath() string {
 }
 
 func (s *CacheSource) Close() error {
+	for _, cached := range s.bundleCache {
+		cached.file.Close()
+	}
+	s.bundleCache = nil
 	return nil
 }
 
 // GgpkSource reads bundles from within a GGPK archive file.
 type GgpkSource struct {
-	reader   *ggpk.Reader
-	ggpkPath string
+	reader      *ggpk.Reader
+	ggpkPath    string
+	bundleCache map[string]*bundle
 }
 
 func NewGgpkSource(ggpkPath string) (*GgpkSource, error) {
@@ -92,7 +126,7 @@ func NewGgpkSource(ggpkPath string) (*GgpkSource, error) {
 	if err != nil {
 		return nil, fmt.Errorf("opening GGPK file: %w", err)
 	}
-	return &GgpkSource{reader: r, ggpkPath: ggpkPath}, nil
+	return &GgpkSource{reader: r, ggpkPath: ggpkPath, bundleCache: make(map[string]*bundle)}, nil
 }
 
 func (s *GgpkSource) IndexCachePath() string {
@@ -107,7 +141,11 @@ func (s *GgpkSource) ReadIndex() ([]byte, error) {
 	return s.reader.ReadFileData(rec)
 }
 
-func (s *GgpkSource) ReadFileFromBundle(bundleName string, offset, size uint32) ([]byte, error) {
+func (s *GgpkSource) getBundle(bundleName string) (*bundle, error) {
+	if cached, ok := s.bundleCache[bundleName]; ok {
+		return cached, nil
+	}
+
 	path := "Bundles2/" + bundleName + ".bundle.bin"
 	rec, err := s.reader.FindFile(path)
 	if err != nil {
@@ -118,6 +156,16 @@ func (s *GgpkSource) ReadFileFromBundle(bundleName string, offset, size uint32) 
 	b, err := OpenBundle(bundleReader)
 	if err != nil {
 		return nil, fmt.Errorf("opening bundle %s from GGPK: %w", bundleName, err)
+	}
+
+	s.bundleCache[bundleName] = b
+	return b, nil
+}
+
+func (s *GgpkSource) ReadFileFromBundle(bundleName string, offset, size uint32) ([]byte, error) {
+	b, err := s.getBundle(bundleName)
+	if err != nil {
+		return nil, err
 	}
 
 	data := make([]byte, size)
