@@ -26,6 +26,10 @@ How to use:
 # Find what you need from community schema
 https://snosme.github.io/poe-dat-viewer/
 
+# Browse the bundle index to find files and directories
+./exiledb list                     # list root directory
+./exiledb list --path data/balance # list a specific path
+
 # Download bundles and extract data to DB
 ./exiledb extract # uses exiledb.yaml for configuration
 
