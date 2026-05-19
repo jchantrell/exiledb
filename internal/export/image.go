@@ -1,12 +1,14 @@
 package export
 
 import (
-	"bytes"
 	"fmt"
-	"os/exec"
+	"image"
+	"image/png"
+	"os"
+
+	"github.com/jchantrell/exiledb/internal/dds"
 )
 
-// CropParams defines optional crop parameters for image extraction
 type CropParams struct {
 	Width  int
 	Height int
@@ -14,33 +16,32 @@ type CropParams struct {
 	Left   int
 }
 
-// ConvertDDSToPNG converts a DDS image to PNG format using ImageMagick
-// Optionally crops the image if crop parameters are provided
-// Returns an error if ImageMagick is not installed or conversion fails
 func ConvertDDSToPNG(ddsData []byte, crop *CropParams, outputPath string) error {
-	// Build crop argument
-	cropArg := "100%"
-	if crop != nil {
-		cropArg = fmt.Sprintf("%dx%d+%d+%d", crop.Width, crop.Height, crop.Top, crop.Left)
+	img, err := dds.Decode(ddsData)
+	if err != nil {
+		return fmt.Errorf("decoding DDS: %w", err)
 	}
 
-	// Create ImageMagick command
-	// Using 'magick' command (ImageMagick 7+)
-	cmd := exec.Command("magick", "dds:-", "-crop", cropArg, outputPath)
-
-	// Set up stdin to pipe DDS data
-	cmd.Stdin = bytes.NewReader(ddsData)
-
-	// Run the command
-	if err := cmd.Run(); err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			return fmt.Errorf("imagemagick exited with code %d", exitErr.ExitCode())
+	if crop != nil {
+		bounds := image.Rect(crop.Left, crop.Top, crop.Left+crop.Width, crop.Top+crop.Height)
+		type subImager interface {
+			SubImage(r image.Rectangle) image.Image
 		}
-		// Check if command not found
-		if err == exec.ErrNotFound || err.Error() == "executable file not found in $PATH" {
-			return fmt.Errorf("ImageMagick is not installed or not found in PATH: %w", err)
+		si, ok := img.(subImager)
+		if !ok {
+			return fmt.Errorf("image type %T does not support cropping", img)
 		}
-		return fmt.Errorf("running imagemagick: %w", err)
+		img = si.SubImage(bounds)
+	}
+
+	f, err := os.Create(outputPath)
+	if err != nil {
+		return fmt.Errorf("creating output file: %w", err)
+	}
+	defer f.Close()
+
+	if err := png.Encode(f, img); err != nil {
+		return fmt.Errorf("encoding PNG: %w", err)
 	}
 
 	return nil
