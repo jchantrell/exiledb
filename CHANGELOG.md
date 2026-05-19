@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.3.0](https://github.com/jchantrell/exiledb/compare/v1.2.0...v1.3.0) (2026-05-19)
+
+
+### Features
+
+* add GGPK file support for extract and list commands ([5a53896](https://github.com/jchantrell/exiledb/commit/5a538968ebabf63bd0dff1f728752cf6a291ce8a))
+* add list command for browsing bundle index contents ([807f4d5](https://github.com/jchantrell/exiledb/commit/807f4d504049db03d0074cda728e6d18af46b8af))
+* include unnamed schema columns in database ([c8d9d1f](https://github.com/jchantrell/exiledb/commit/c8d9d1fe075d733a3c9c7212bc05ee10e5989d0c))
+
+
+### Bug Fixes
+
+* allow file-only extraction without processing tables ([f67ba9d](https://github.com/jchantrell/exiledb/commit/f67ba9d58111ccb04e606f38af644dbf43ffdeb2))
+* correct PoE2 language path to data/balance/{lang}/{table} ([a43269c](https://github.com/jchantrell/exiledb/commit/a43269cb37a49de7a20746e6cf74069364ef91c0))
+* join untranslated tables on English in mods query ([ed1958a](https://github.com/jchantrell/exiledb/commit/ed1958aea720f6d33870721295c677022fa2c528))
+* prevent hang when exported files don't exist ([3d377dd](https://github.com/jchantrell/exiledb/commit/3d377dd5895a4b82eac36fee33747d9f4b62b2f2))
+* use data/balance/ path prefix for PoE2 dat files ([807b5c5](https://github.com/jchantrell/exiledb/commit/807b5c5b753ece0b68e0f397b0d972bd80f8191c))
+* use stats.id instead of nonexistent stats.text in mods query ([9a57afb](https://github.com/jchantrell/exiledb/commit/9a57afb2e5fd083d491cd8304d5e8af215d243bf))
+
 ## [1.2.0](https://github.com/jchantrell/exiledb/compare/v1.1.0...v1.2.0) (2025-10-20)
 
 
