@@ -8,6 +8,8 @@ type Index interface {
 	ListBundles() []string
 	// ListFiles returns all file paths in the index
 	ListFiles() []string
+	// ListFilesWithPrefix returns all files whose path starts with the given prefix (case-insensitive)
+	ListFilesWithPrefix(prefix string) []string
 }
 
 // Bundle represents an opened bundle that can be read from

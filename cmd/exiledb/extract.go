@@ -248,29 +248,24 @@ Use --ggpk to extract directly from a Content.ggpk file instead of downloading f
 			insertProgress.Finish()
 		}
 
-		// Export files if configured
 		if len(cfg.Files) > 0 {
-			slog.Info("Exporting files", "count", len(cfg.Files))
+			expandedFiles := bundleManager.ExpandFilePaths(cfg.Files)
+			slog.Info("Exporting files", "requested", len(cfg.Files), "resolved", len(expandedFiles))
 
-			// Create output directory for exported files
 			outputDir := filepath.Join(".", "files")
-
-			// Create exporter
 			exporter := export.NewExporter(bundleManager, outputDir)
 
-			// Create progress bar
-			fileProgress := utils.NewProgress(len(cfg.Files), showProgress)
+			fileProgress := utils.NewProgress(len(expandedFiles), showProgress)
 			fileProgressCallback := func(current int, total int, description string) {
 				fileProgress.Update(current, description)
 			}
 
-			// Export files
-			if err := exporter.ExportFiles(cfg.Files, fileProgressCallback); err != nil {
+			if err := exporter.ExportFiles(expandedFiles, fileProgressCallback); err != nil {
 				fileProgress.Finish()
 				slog.Error("Failed to export files", "error", err)
 			} else {
 				fileProgress.Finish()
-				stats.FilesExported = len(cfg.Files)
+				stats.FilesExported = len(expandedFiles)
 			}
 		}
 

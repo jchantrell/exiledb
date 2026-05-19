@@ -264,3 +264,26 @@ func (idx *indexImpl) ListFiles() []string {
 	}
 	return files
 }
+
+// ListFilesWithPrefix returns all files whose path starts with the given prefix (case-insensitive)
+func (idx *indexImpl) ListFilesWithPrefix(prefix string) []string {
+	files := idx.internal.files
+	lowerPrefix := strings.ToLower(prefix)
+	if !strings.HasSuffix(lowerPrefix, "/") {
+		lowerPrefix += "/"
+	}
+
+	start := sort.Search(len(files), func(i int) bool {
+		return strings.ToLower(files[i].path) >= lowerPrefix
+	})
+
+	var result []string
+	for i := start; i < len(files); i++ {
+		lower := strings.ToLower(files[i].path)
+		if !strings.HasPrefix(lower, lowerPrefix) {
+			break
+		}
+		result = append(result, files[i].path)
+	}
+	return result
+}

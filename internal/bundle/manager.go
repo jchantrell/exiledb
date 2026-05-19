@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"sort"
 	"strings"
 )
 
@@ -96,9 +97,51 @@ func (m *BundleManager) GetFile(path string) ([]byte, error) {
 	}
 }
 
+// ExpandFilePaths expands a list of paths, replacing directory prefixes with all files under them.
+// Exact file matches are kept as-is; paths that match a directory prefix are expanded recursively.
+func (m *BundleManager) ExpandFilePaths(paths []string) []string {
+	var expanded []string
+	for _, p := range paths {
+		if m.findFileInIndex(p) != nil {
+			expanded = append(expanded, p)
+			continue
+		}
+		children := m.listFilesWithPrefix(p)
+		if len(children) > 0 {
+			expanded = append(expanded, children...)
+		} else {
+			expanded = append(expanded, p)
+		}
+	}
+	return expanded
+}
+
 // Close closes the manager and releases resources
 func (m *BundleManager) Close() error {
 	return m.source.Close()
+}
+
+// listFilesWithPrefix returns all files whose path starts with the given prefix (case-insensitive)
+func (m *BundleManager) listFilesWithPrefix(prefix string) []string {
+	files := m.index.files
+	lowerPrefix := strings.ToLower(prefix)
+	if !strings.HasSuffix(lowerPrefix, "/") {
+		lowerPrefix += "/"
+	}
+
+	start := sort.Search(len(files), func(i int) bool {
+		return strings.ToLower(files[i].path) >= lowerPrefix
+	})
+
+	var result []string
+	for i := start; i < len(files); i++ {
+		lower := strings.ToLower(files[i].path)
+		if !strings.HasPrefix(lower, lowerPrefix) {
+			break
+		}
+		result = append(result, files[i].path)
+	}
+	return result
 }
 
 // findFileInIndex searches for a file in the loaded index (case-insensitive)

@@ -96,25 +96,23 @@ func GetBundleSet(index Index, patch string, tables, languages []string, files [
 		}
 	}
 
-	// Add bundles for requested files
+	// Add bundles for requested files (expanding directory prefixes)
 	if len(files) > 0 {
-		// Track if we need sprite indices
+		expandedFiles := expandFilePaths(index, files)
 		needsSpriteIndices := false
 
-		for _, filePath := range files {
+		for _, filePath := range expandedFiles {
 			if loc, err := index.GetFileInfo(filePath); err == nil {
 				bundleSet[loc.BundleName] = true
 			} else {
 				slog.Warn("File not found in index", "file", filePath, "error", err)
 			}
 
-			// Check if this file is inside a sprite
 			if export.IsInsideSprite(filePath) {
 				needsSpriteIndices = true
 			}
 		}
 
-		// Add sprite index files if needed
 		if needsSpriteIndices {
 			for _, spriteList := range export.SpriteLists {
 				if loc, err := index.GetFileInfo(spriteList.Path); err == nil {
@@ -128,6 +126,23 @@ func GetBundleSet(index Index, patch string, tables, languages []string, files [
 	}
 
 	return bundleSet
+}
+
+func expandFilePaths(index Index, paths []string) []string {
+	var expanded []string
+	for _, p := range paths {
+		if _, err := index.GetFileInfo(p); err == nil {
+			expanded = append(expanded, p)
+			continue
+		}
+		children := index.ListFilesWithPrefix(p)
+		if len(children) > 0 {
+			expanded = append(expanded, children...)
+		} else {
+			expanded = append(expanded, p)
+		}
+	}
+	return expanded
 }
 
 func (r *BytesReaderAt) ReadAt(p []byte, off int64) (int, error) {
