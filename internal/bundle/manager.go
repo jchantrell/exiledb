@@ -1,9 +1,11 @@
 package bundle
 
 import (
+	"cmp"
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -112,6 +114,35 @@ func (m *BundleManager) ExpandFilePaths(paths []string) []string {
 		}
 	}
 	return expanded
+}
+
+// SortByBundle reorders paths so files from the same bundle are contiguous,
+// minimizing bundle open/close overhead during sequential processing.
+func (m *BundleManager) SortByBundle(paths []string) []string {
+	type fileWithBundle struct {
+		path     string
+		bundleId uint32
+	}
+
+	items := make([]fileWithBundle, 0, len(paths))
+	for _, p := range paths {
+		info := m.findFileInIndex(p)
+		if info != nil {
+			items = append(items, fileWithBundle{path: p, bundleId: info.bundleId})
+		} else {
+			items = append(items, fileWithBundle{path: p, bundleId: ^uint32(0)})
+		}
+	}
+
+	slices.SortStableFunc(items, func(a, b fileWithBundle) int {
+		return cmp.Compare(a.bundleId, b.bundleId)
+	})
+
+	sorted := make([]string, len(items))
+	for i, item := range items {
+		sorted[i] = item.path
+	}
+	return sorted
 }
 
 // Close closes the manager and releases resources

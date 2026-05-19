@@ -248,7 +248,7 @@ Use --ggpk to extract directly from a Content.ggpk file instead of downloading f
 		}
 
 		if len(cfg.Files) > 0 {
-			expandedFiles := bundleManager.ExpandFilePaths(cfg.Files)
+			expandedFiles := bundleManager.SortByBundle(bundleManager.ExpandFilePaths(cfg.Files))
 			slog.Info("Exporting files", "requested", len(cfg.Files), "resolved", len(expandedFiles))
 
 			outputDir := filepath.Join(".", "files")
