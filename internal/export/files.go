@@ -173,6 +173,14 @@ func (e *Exporter) exportSprites(files []string, parsedLists [][]SpriteImage, to
 		for _, img := range spriteImages {
 			outputPath := filepath.Join(e.outputDir, sanitizePath(img.Name)+".png")
 
+			if _, err := os.Stat(outputPath); err == nil {
+				*processedCount++
+				if progressCallback != nil {
+					progressCallback(*processedCount, totalFiles, sanitizePath(img.Name))
+				}
+				continue
+			}
+
 			crop := &CropParams{
 				Width:  img.Width,
 				Height: img.Height,
@@ -210,7 +218,25 @@ func (e *Exporter) exportRegularFiles(files []string, totalFiles int, processedC
 		return *processedCount, nil
 	}
 
+	skipped := 0
 	for _, filePath := range regularFiles {
+		// Determine output path before loading file data
+		var outputPath string
+		if strings.HasSuffix(filePath, ".dds") {
+			outputPath = filepath.Join(e.outputDir, strings.TrimSuffix(sanitizePath(filePath), ".dds")+".png")
+		} else {
+			outputPath = filepath.Join(e.outputDir, sanitizePath(filePath))
+		}
+
+		if _, err := os.Stat(outputPath); err == nil {
+			skipped++
+			*processedCount++
+			if progressCallback != nil {
+				progressCallback(*processedCount, totalFiles, sanitizePath(filePath))
+			}
+			continue
+		}
+
 		fileData, err := e.loader.GetFile(filePath)
 		if err != nil {
 			slog.Warn("Skipping file export", "path", filePath, "error", err)
@@ -221,11 +247,7 @@ func (e *Exporter) exportRegularFiles(files []string, totalFiles int, processedC
 			continue
 		}
 
-		// Determine output path and processing
-		var outputPath string
 		if strings.HasSuffix(filePath, ".dds") {
-			// Convert DDS to PNG
-			outputPath = filepath.Join(e.outputDir, strings.TrimSuffix(sanitizePath(filePath), ".dds")+".png")
 
 			if err := ConvertDDSToPNG(fileData, nil, outputPath); err != nil {
 				slog.Warn("Skipping DDS conversion", "path", filePath, "error", err)
@@ -238,9 +260,6 @@ func (e *Exporter) exportRegularFiles(files []string, totalFiles int, processedC
 
 			slog.Debug("Converted DDS to PNG", "path", filePath, "output", outputPath)
 		} else {
-			// Copy file (decode text files to UTF-8)
-			outputPath = filepath.Join(e.outputDir, sanitizePath(filePath))
-
 			// Decode UTF-16LE text files to UTF-8 for human readability
 			if strings.HasSuffix(strings.ToLower(filePath), ".txt") || strings.HasSuffix(strings.ToLower(filePath), ".text") {
 				text, err := DecodeUTF16LE(fileData)
@@ -264,6 +283,10 @@ func (e *Exporter) exportRegularFiles(files []string, totalFiles int, processedC
 		if progressCallback != nil {
 			progressCallback(*processedCount, totalFiles, sanitizePath(filePath))
 		}
+	}
+
+	if skipped > 0 {
+		slog.Info("Skipped already exported files", "count", skipped)
 	}
 
 	return *processedCount, nil
