@@ -33,6 +33,10 @@ https://snosme.github.io/poe-dat-viewer/
 # Download bundles and extract data to DB
 ./exiledb extract # uses exiledb.yaml for configuration
 
+# Or extract directly from a Content.ggpk file instead of downloading from CDN
+./exiledb list --ggpk /path/to/Content.ggpk
+./exiledb extract --ggpk /path/to/Content.ggpk
+
 # Then run SQL queries against the DB to get your data
 ./examples/items/run.sh # output is at ./examples/items/{language}.json
 [
