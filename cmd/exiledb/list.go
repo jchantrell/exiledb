@@ -19,22 +19,39 @@ var listCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List files and directories in the game bundle index",
 	Long: `List files and directories at a given path within the game bundle index.
-Only downloads the index file — no bundles are fetched.`,
+Only downloads the index file — no bundles are fetched.
+
+Use --ggpk to list from a Content.ggpk file instead of downloading from CDN.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		c := cache.CacheManager()
+		var indexData []byte
 
-		gameVersion, err := utils.ParseGameVersion(cfg.Patch)
-		if err != nil {
-			return fmt.Errorf("parsing game version: %w", err)
-		}
+		if cfg.GgpkPath != "" {
+			source, err := bundle.NewGgpkSource(cfg.GgpkPath)
+			if err != nil {
+				return fmt.Errorf("opening GGPK: %w", err)
+			}
+			defer source.Close()
 
-		if err := cdn.DownloadIndex(c, cfg.Patch, gameVersion, false); err != nil {
-			return fmt.Errorf("downloading index file: %w", err)
-		}
+			indexData, err = source.ReadIndex()
+			if err != nil {
+				return fmt.Errorf("reading index from GGPK: %w", err)
+			}
+		} else {
+			c := cache.CacheManager()
 
-		indexData, err := os.ReadFile(c.GetIndexPath(cfg.Patch))
-		if err != nil {
-			return fmt.Errorf("reading index file: %w", err)
+			gameVersion, err := utils.ParseGameVersion(cfg.Patch)
+			if err != nil {
+				return fmt.Errorf("parsing game version: %w", err)
+			}
+
+			if err := cdn.DownloadIndex(c, cfg.Patch, gameVersion, false); err != nil {
+				return fmt.Errorf("downloading index file: %w", err)
+			}
+
+			indexData, err = os.ReadFile(c.GetIndexPath(cfg.Patch))
+			if err != nil {
+				return fmt.Errorf("reading index file: %w", err)
+			}
 		}
 
 		decompressedData, err := bundle.DecompressIndexBundle(indexData)

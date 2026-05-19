@@ -15,6 +15,7 @@ type Config struct {
 	Languages []string `mapstructure:"languages"`
 	LogLevel  string   `mapstructure:"log_level"`
 	LogFormat string   `mapstructure:"log_format"`
+	GgpkPath  string   `mapstructure:"ggpk"`
 }
 
 // Load initializes and loads configuration from file

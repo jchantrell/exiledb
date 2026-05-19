@@ -39,7 +39,9 @@ var extractCmd = &cobra.Command{
 	Use:   "extract",
 	Short: "Download bundles and extract DAT files into SQLite database",
 	Long: `Extract downloads Path of Exile game bundles from CDN servers and
-extracts DAT files into a queryable SQLite database.`,
+extracts DAT files into a queryable SQLite database.
+
+Use --ggpk to extract directly from a Content.ggpk file instead of downloading from CDN.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		stats := &ExtractionStats{
 			StartTime: time.Now(),
@@ -69,34 +71,49 @@ extracts DAT files into a queryable SQLite database.`,
 			return fmt.Errorf("database already contains tables")
 		}
 
-		cache := cache.CacheManager()
+		var bundleManager *bundle.BundleManager
 
-		gameVersion, err := utils.ParseGameVersion(cfg.Patch)
-		if err != nil {
-			return fmt.Errorf("parsing game version: %w", err)
-		}
+		if cfg.GgpkPath != "" {
+			slog.Info("Using GGPK file", "path", cfg.GgpkPath)
+			source, err := bundle.NewGgpkSource(cfg.GgpkPath)
+			if err != nil {
+				return fmt.Errorf("opening GGPK: %w", err)
+			}
+			bundleManager, err = bundle.NewBundleManager(source)
+			if err != nil {
+				return fmt.Errorf("creating bundle manager from GGPK: %w", err)
+			}
+		} else {
+			c := cache.CacheManager()
 
-		if err := cdn.DownloadIndex(cache, cfg.Patch, gameVersion, forceDownload); err != nil {
-			return fmt.Errorf("downloading index file: %w", err)
-		}
+			gameVersion, err := utils.ParseGameVersion(cfg.Patch)
+			if err != nil {
+				return fmt.Errorf("parsing game version: %w", err)
+			}
 
-		requiredBundles, err := bundle.DiscoverRequiredBundles(cache, cfg.Patch, cfg.Languages, cfg.Tables, cfg.Files)
-		if err != nil {
-			return fmt.Errorf("discovering required bundles: %w", err)
-		}
+			if err := cdn.DownloadIndex(c, cfg.Patch, gameVersion, forceDownload); err != nil {
+				return fmt.Errorf("downloading index file: %w", err)
+			}
 
-		if len(requiredBundles) == 0 {
-			slog.Info("No bundles required for current configuration")
-			return nil
-		}
+			requiredBundles, err := bundle.DiscoverRequiredBundles(c, cfg.Patch, cfg.Languages, cfg.Tables, cfg.Files)
+			if err != nil {
+				return fmt.Errorf("discovering required bundles: %w", err)
+			}
 
-		if err := cdn.DownloadBundles(cache, cfg.Patch, gameVersion, requiredBundles, forceDownload, showProgress); err != nil {
-			return fmt.Errorf("downloading bundles: %w", err)
-		}
+			if len(requiredBundles) == 0 {
+				slog.Info("No bundles required for current configuration")
+				return nil
+			}
 
-		bundleManager, err := bundle.NewBundleManager(cache.GetCacheDir(), cfg.Patch)
-		if err != nil {
-			return fmt.Errorf("creating bundle manager: %w", err)
+			if err := cdn.DownloadBundles(c, cfg.Patch, gameVersion, requiredBundles, forceDownload, showProgress); err != nil {
+				return fmt.Errorf("downloading bundles: %w", err)
+			}
+
+			source := bundle.NewCacheSource(c, cfg.Patch)
+			bundleManager, err = bundle.NewBundleManager(source)
+			if err != nil {
+				return fmt.Errorf("creating bundle manager: %w", err)
+			}
 		}
 		defer bundleManager.Close()
 
@@ -150,7 +167,7 @@ extracts DAT files into a queryable SQLite database.`,
 		bulkInsertOptions := &database.BulkInsertOptions{
 			BatchSize:             1000,
 			MaxRetries:            3,
-			ArrayWarningThreshold: 5000, // Warn for extremely large arrays
+			ArrayWarningThreshold: 5000,
 		}
 		bulkInserter := database.NewBulkInserter(db, bulkInsertOptions)
 

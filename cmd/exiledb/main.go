@@ -22,6 +22,7 @@ var (
 	logLevel   string
 	logFormat  string
 	noProgress bool
+	ggpkPath   string
 )
 
 var rootCmd = &cobra.Command{
@@ -59,6 +60,9 @@ and processes them according to the latest schema to create a local database.`,
 		}
 		if cmd.Flags().Changed("log-format") {
 			cfg.LogFormat = logFormat
+		}
+		if cmd.Flags().Changed("ggpk") {
+			cfg.GgpkPath = ggpkPath
 		}
 
 		var level slog.Level
@@ -119,4 +123,5 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "", "log level (debug, info, warn, error)")
 	rootCmd.PersistentFlags().StringVar(&logFormat, "log-format", "", "log format (text, json)")
 	rootCmd.PersistentFlags().BoolVar(&noProgress, "no-progress", false, "disable progress bar")
+	rootCmd.PersistentFlags().StringVar(&ggpkPath, "ggpk", "", "path to Content.ggpk file (reads from GGPK instead of CDN)")
 }
