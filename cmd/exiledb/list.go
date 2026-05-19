@@ -24,6 +24,7 @@ Only downloads the index file — no bundles are fetched.
 Use --ggpk to list from a Content.ggpk file instead of downloading from CDN.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		var indexData []byte
+		var cachePath string
 
 		if cfg.GgpkPath != "" {
 			source, err := bundle.NewGgpkSource(cfg.GgpkPath)
@@ -36,6 +37,7 @@ Use --ggpk to list from a Content.ggpk file instead of downloading from CDN.`,
 			if err != nil {
 				return fmt.Errorf("reading index from GGPK: %w", err)
 			}
+			cachePath = source.IndexCachePath()
 		} else {
 			c := cache.CacheManager()
 
@@ -52,14 +54,10 @@ Use --ggpk to list from a Content.ggpk file instead of downloading from CDN.`,
 			if err != nil {
 				return fmt.Errorf("reading index file: %w", err)
 			}
+			cachePath = c.GetIndexPath(cfg.Patch) + ".cache"
 		}
 
-		decompressedData, err := bundle.DecompressIndexBundle(indexData)
-		if err != nil {
-			return fmt.Errorf("decompressing index: %w", err)
-		}
-
-		index, err := bundle.LoadIndex(decompressedData)
+		index, err := bundle.LoadIndexCached(indexData, cachePath)
 		if err != nil {
 			return fmt.Errorf("loading index: %w", err)
 		}

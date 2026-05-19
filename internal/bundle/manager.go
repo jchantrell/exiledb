@@ -1,7 +1,6 @@
 package bundle
 
 import (
-	"bytes"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -23,8 +22,7 @@ func NewBundleManager(source BundleSource) (*BundleManager, error) {
 		return nil, fmt.Errorf("reading index: %w", err)
 	}
 
-	reader := bytes.NewReader(indexData)
-	index, err := loadBundleIndex(reader)
+	index, err := loadBundleIndexCached(indexData, source.IndexCachePath())
 	if err != nil {
 		return nil, fmt.Errorf("loading bundle index: %w", err)
 	}

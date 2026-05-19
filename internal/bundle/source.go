@@ -16,6 +16,7 @@ import (
 type BundleSource interface {
 	ReadIndex() ([]byte, error)
 	ReadFileFromBundle(bundleName string, offset, size uint32) ([]byte, error)
+	IndexCachePath() string
 	Close() error
 }
 
@@ -72,13 +73,18 @@ func (s *CacheSource) ReadFileFromBundle(bundleName string, offset, size uint32)
 	return data, nil
 }
 
+func (s *CacheSource) IndexCachePath() string {
+	return s.cache.GetIndexPath(s.patch) + ".cache"
+}
+
 func (s *CacheSource) Close() error {
 	return nil
 }
 
 // GgpkSource reads bundles from within a GGPK archive file.
 type GgpkSource struct {
-	reader *ggpk.Reader
+	reader   *ggpk.Reader
+	ggpkPath string
 }
 
 func NewGgpkSource(ggpkPath string) (*GgpkSource, error) {
@@ -86,7 +92,11 @@ func NewGgpkSource(ggpkPath string) (*GgpkSource, error) {
 	if err != nil {
 		return nil, fmt.Errorf("opening GGPK file: %w", err)
 	}
-	return &GgpkSource{reader: r}, nil
+	return &GgpkSource{reader: r, ggpkPath: ggpkPath}, nil
+}
+
+func (s *GgpkSource) IndexCachePath() string {
+	return s.ggpkPath + ".idx"
 }
 
 func (s *GgpkSource) ReadIndex() ([]byte, error) {
