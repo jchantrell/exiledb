@@ -10,20 +10,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	cfg     *config.Config
-	cfgFile string
-
-	patch      string
-	dbPath     string
-	tables     []string
-	files      []string
-	languages  []string
-	logLevel   string
-	logFormat  string
-	noProgress bool
-	ggpkPath   string
-)
+var cfg *config.Config
 
 var rootCmd = &cobra.Command{
 	Use:   "exiledb",
@@ -34,35 +21,21 @@ and transforming it into a queryable SQLite database.
 This tool downloads bundle files from the PoE CDN, extracts DAT files,
 and processes them according to the latest schema to create a local database.`,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		var err error
-		cfg, err = config.Load(cfgFile)
-		if err != nil {
-			return fmt.Errorf("failed to load configuration: %w", err)
+		flags := cmd.Flags()
+
+		cfg = &config.Config{
+			Patch:    must(flags.GetString("patch")),
+			Database: must(flags.GetString("database")),
+			Tables:   mustSlice(flags.GetStringSlice("tables")),
+			Files:    mustSlice(flags.GetStringSlice("files")),
+			Languages: mustSlice(flags.GetStringSlice("languages")),
+			LogLevel:  must(flags.GetString("log-level")),
+			LogFormat: must(flags.GetString("log-format")),
+			GgpkPath:  must(flags.GetString("ggpk")),
 		}
 
-		if cmd.Flags().Changed("patch") {
-			cfg.Patch = patch
-		}
-		if cmd.Flags().Changed("database") {
-			cfg.Database = dbPath
-		}
-		if cmd.Flags().Changed("tables") {
-			cfg.Tables = tables
-		}
-		if cmd.Flags().Changed("files") {
-			cfg.Files = files
-		}
-		if cmd.Flags().Changed("languages") {
-			cfg.Languages = languages
-		}
-		if cmd.Flags().Changed("log-level") {
-			cfg.LogLevel = logLevel
-		}
-		if cmd.Flags().Changed("log-format") {
-			cfg.LogFormat = logFormat
-		}
-		if cmd.Flags().Changed("ggpk") {
-			cfg.GgpkPath = ggpkPath
+		if err := config.Validate(cfg); err != nil {
+			return err
 		}
 
 		var level slog.Level
@@ -90,8 +63,7 @@ and processes them according to the latest schema to create a local database.`,
 			})
 		}
 
-		logger := slog.New(handler)
-		slog.SetDefault(logger)
+		slog.SetDefault(slog.New(handler))
 
 		slog.Info("Configuration",
 			"patch", cfg.Patch,
@@ -114,14 +86,16 @@ func main() {
 }
 
 func init() {
-	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is exiledb.yaml in pwd)")
-	rootCmd.PersistentFlags().StringVarP(&patch, "patch", "p", "", "patch version to use")
-	rootCmd.PersistentFlags().StringVarP(&dbPath, "database", "d", "", "database file path")
-	rootCmd.PersistentFlags().StringSliceVar(&tables, "tables", []string{}, "comma-separated list of tables to extract")
-	rootCmd.PersistentFlags().StringSliceVar(&files, "files", []string{}, "comma-separated list of files to extract")
-	rootCmd.PersistentFlags().StringSliceVar(&languages, "languages", []string{"English"}, "comma-separated list of languages to extract")
-	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "", "log level (debug, info, warn, error)")
-	rootCmd.PersistentFlags().StringVar(&logFormat, "log-format", "", "log format (text, json)")
-	rootCmd.PersistentFlags().BoolVar(&noProgress, "no-progress", false, "disable progress bar")
-	rootCmd.PersistentFlags().StringVar(&ggpkPath, "ggpk", "", "path to Content.ggpk file (reads from GGPK instead of CDN)")
+	rootCmd.PersistentFlags().StringP("patch", "p", "", "patch version to use")
+	rootCmd.PersistentFlags().StringP("database", "d", "exile.db", "database file path")
+	rootCmd.PersistentFlags().StringSlice("tables", nil, "comma-separated list of tables to extract")
+	rootCmd.PersistentFlags().StringSlice("files", nil, "comma-separated list of files to extract")
+	rootCmd.PersistentFlags().StringSlice("languages", []string{"English"}, "comma-separated list of languages to extract")
+	rootCmd.PersistentFlags().String("log-level", "info", "log level (debug, info, warn, error)")
+	rootCmd.PersistentFlags().String("log-format", "text", "log format (text, json)")
+	rootCmd.PersistentFlags().Bool("no-progress", false, "disable progress bar")
+	rootCmd.PersistentFlags().String("ggpk", "", "path to Content.ggpk file (reads from GGPK instead of CDN)")
 }
+
+func must(s string, _ error) string  { return s }
+func mustSlice(s []string, _ error) []string { return s }

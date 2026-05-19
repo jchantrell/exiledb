@@ -49,6 +49,7 @@ Use --ggpk to extract directly from a Content.ggpk file instead of downloading f
 		var memStatsStart runtime.MemStats
 		runtime.ReadMemStats(&memStatsStart)
 
+		noProgress, _ := cmd.Flags().GetBool("no-progress")
 		showProgress := !(noProgress || cfg.LogFormat == "json" || cfg.LogLevel == "debug")
 
 		slog.Info("Starting extract...", "languages", cfg.Languages)
