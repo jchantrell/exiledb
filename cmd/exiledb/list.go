@@ -62,24 +62,25 @@ Use --ggpk to list from a Content.ggpk file instead of downloading from CDN.`,
 			return fmt.Errorf("loading index: %w", err)
 		}
 
-		prefix := strings.ToLower(strings.TrimSuffix(listPath, "/"))
+		prefix := strings.TrimSuffix(listPath, "/")
+
+		var matched []string
+		if prefix == "" {
+			matched = index.ListFiles()
+		} else {
+			matched = index.ListFilesWithPrefix(prefix)
+		}
+
+		prefixWithSlash := ""
 		if prefix != "" {
-			prefix += "/"
+			prefixWithSlash = prefix + "/"
 		}
 
 		dirs := make(map[string]bool)
 		var files []string
 
-		for _, f := range index.ListFiles() {
-			if f == "" {
-				continue
-			}
-			lower := strings.ToLower(f)
-			if !strings.HasPrefix(lower, prefix) {
-				continue
-			}
-
-			rest := f[len(prefix):]
+		for _, f := range matched {
+			rest := f[len(prefixWithSlash):]
 			if rest == "" {
 				continue
 			}
