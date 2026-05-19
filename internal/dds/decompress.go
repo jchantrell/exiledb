@@ -531,10 +531,7 @@ func DecompressDXT1(buf []uint8, r io.Reader, width, height int, info Info) ([]u
 					buf[idx+0] = cR[code]
 					buf[idx+1] = cG[code]
 					buf[idx+2] = cB[code]
-					buf[idx+3] = 255
-					if cA[code] != 0 {
-						return nil, errors.New("expected alpha to be 0 in DXT 1 compressed image")
-					}
+					buf[idx+3] = 255 - cA[code]
 				}
 			}
 		}

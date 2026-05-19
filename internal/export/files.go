@@ -228,7 +228,12 @@ func (e *Exporter) exportRegularFiles(files []string, totalFiles int, processedC
 			outputPath = filepath.Join(e.outputDir, strings.TrimSuffix(sanitizePath(filePath), ".dds")+".png")
 
 			if err := ConvertDDSToPNG(fileData, nil, outputPath); err != nil {
-				return *processedCount, fmt.Errorf("converting DDS file %s: %w", filePath, err)
+				slog.Warn("Skipping DDS conversion", "path", filePath, "error", err)
+				*processedCount++
+				if progressCallback != nil {
+					progressCallback(*processedCount, totalFiles, sanitizePath(filePath))
+				}
+				continue
 			}
 
 			slog.Debug("Converted DDS to PNG", "path", filePath, "output", outputPath)
