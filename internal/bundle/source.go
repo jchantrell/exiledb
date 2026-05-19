@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/jchantrell/exiledb/internal/cache"
 	"github.com/jchantrell/exiledb/internal/ggpk"
@@ -24,6 +25,7 @@ type BundleSource interface {
 type CacheSource struct {
 	patch       string
 	cache       *cache.Cache
+	mu          sync.Mutex
 	bundleCache map[string]*cachedBundle
 }
 
@@ -45,6 +47,9 @@ func (s *CacheSource) ReadIndex() ([]byte, error) {
 }
 
 func (s *CacheSource) getBundle(bundleName string) (*bundle, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if cached, ok := s.bundleCache[bundleName]; ok {
 		return cached.bundle, nil
 	}
@@ -118,6 +123,7 @@ func (s *CacheSource) Close() error {
 type GgpkSource struct {
 	reader      *ggpk.Reader
 	ggpkPath    string
+	mu          sync.Mutex
 	bundleCache map[string]*bundle
 }
 
@@ -142,6 +148,9 @@ func (s *GgpkSource) ReadIndex() ([]byte, error) {
 }
 
 func (s *GgpkSource) getBundle(bundleName string) (*bundle, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if cached, ok := s.bundleCache[bundleName]; ok {
 		return cached, nil
 	}

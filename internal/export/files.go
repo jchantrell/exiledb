@@ -5,7 +5,12 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
+	"sync/atomic"
+
+	"golang.org/x/sync/errgroup"
 )
 
 // FileLoader defines the interface for loading files from bundles
@@ -159,54 +164,75 @@ func (e *Exporter) exportSprites(files []string, parsedLists [][]SpriteImage, to
 		bySprite[img.SpritePath] = append(bySprite[img.SpritePath], img)
 	}
 
-	// Process each sprite sheet
+	var processed atomic.Int64
+	processed.Store(int64(*processedCount))
+
+	var progressMu sync.Mutex
+	reportProgress := func(name string) {
+		cur := int(processed.Add(1))
+		if progressCallback != nil {
+			progressMu.Lock()
+			progressCallback(cur, totalFiles, name)
+			progressMu.Unlock()
+		}
+	}
+
+	workers := runtime.GOMAXPROCS(0)
+	g := new(errgroup.Group)
+	g.SetLimit(workers)
+
 	for spritePath, spriteImages := range bySprite {
 		slog.Info("Extracting sprite sheet", "path", spritePath, "image_count", len(spriteImages))
 
-		// Load the DDS file
 		ddsData, err := e.loader.GetFile(spritePath)
 		if err != nil {
-			return *processedCount, fmt.Errorf("loading sprite DDS %s: %w", spritePath, err)
+			return int(processed.Load()), fmt.Errorf("loading sprite DDS %s: %w", spritePath, err)
 		}
 
-		// Extract each image from the sprite sheet
 		for _, img := range spriteImages {
 			outputPath := filepath.Join(e.outputDir, sanitizePath(img.Name)+".png")
 
 			if _, err := os.Stat(outputPath); err == nil {
-				*processedCount++
-				if progressCallback != nil {
-					progressCallback(*processedCount, totalFiles, sanitizePath(img.Name))
-				}
+				reportProgress(sanitizePath(img.Name))
 				continue
 			}
 
-			crop := &CropParams{
-				Width:  img.Width,
-				Height: img.Height,
-				Top:    img.Top,
-				Left:   img.Left,
-			}
+			img := img
+			g.Go(func() error {
+				crop := &CropParams{
+					Width:  img.Width,
+					Height: img.Height,
+					Top:    img.Top,
+					Left:   img.Left,
+				}
 
-			if err := ConvertDDSToPNG(ddsData, crop, outputPath); err != nil {
-				return *processedCount, fmt.Errorf("converting sprite image %s: %w", img.Name, err)
-			}
+				if err := ConvertDDSToPNG(ddsData, crop, outputPath); err != nil {
+					return fmt.Errorf("converting sprite image %s: %w", img.Name, err)
+				}
 
-			*processedCount++
-			if progressCallback != nil {
-				progressCallback(*processedCount, totalFiles, sanitizePath(img.Name))
-			}
-
-			slog.Debug("Extracted sprite image", "name", img.Name, "output", outputPath)
+				reportProgress(sanitizePath(img.Name))
+				slog.Debug("Extracted sprite image", "name", img.Name, "output", outputPath)
+				return nil
+			})
 		}
 	}
 
+	if err := g.Wait(); err != nil {
+		return int(processed.Load()), err
+	}
+
+	*processedCount = int(processed.Load())
 	return *processedCount, nil
 }
 
-// exportRegularFiles exports non-sprite files
+type fileJob struct {
+	filePath   string
+	outputPath string
+	fileData   []byte
+}
+
+// exportRegularFiles exports non-sprite files using parallel workers for CPU-bound conversions
 func (e *Exporter) exportRegularFiles(files []string, totalFiles int, processedCount *int, progressCallback ProgressCallback) (int, error) {
-	// Filter out sprite files
 	regularFiles := make([]string, 0)
 	for _, file := range files {
 		if !IsInsideSprite(file) {
@@ -218,9 +244,26 @@ func (e *Exporter) exportRegularFiles(files []string, totalFiles int, processedC
 		return *processedCount, nil
 	}
 
-	skipped := 0
+	var processed atomic.Int64
+	processed.Store(int64(*processedCount))
+
+	var progressMu sync.Mutex
+	reportProgress := func(name string) {
+		cur := int(processed.Add(1))
+		if progressCallback != nil {
+			progressMu.Lock()
+			progressCallback(cur, totalFiles, name)
+			progressMu.Unlock()
+		}
+	}
+
+	workers := runtime.GOMAXPROCS(0)
+	g := new(errgroup.Group)
+	g.SetLimit(workers)
+
+	var skipped atomic.Int64
+
 	for _, filePath := range regularFiles {
-		// Determine output path before loading file data
 		var outputPath string
 		if strings.HasSuffix(filePath, ".dds") {
 			outputPath = filepath.Join(e.outputDir, strings.TrimSuffix(sanitizePath(filePath), ".dds")+".png")
@@ -229,67 +272,64 @@ func (e *Exporter) exportRegularFiles(files []string, totalFiles int, processedC
 		}
 
 		if _, err := os.Stat(outputPath); err == nil {
-			skipped++
-			*processedCount++
-			if progressCallback != nil {
-				progressCallback(*processedCount, totalFiles, sanitizePath(filePath))
-			}
+			skipped.Add(1)
+			reportProgress(sanitizePath(filePath))
 			continue
 		}
 
 		fileData, err := e.loader.GetFile(filePath)
 		if err != nil {
 			slog.Warn("Skipping file export", "path", filePath, "error", err)
-			*processedCount++
-			if progressCallback != nil {
-				progressCallback(*processedCount, totalFiles, sanitizePath(filePath))
-			}
+			reportProgress(sanitizePath(filePath))
 			continue
 		}
 
-		if strings.HasSuffix(filePath, ".dds") {
-
-			if err := ConvertDDSToPNG(fileData, nil, outputPath); err != nil {
-				slog.Warn("Skipping DDS conversion", "path", filePath, "error", err)
-				*processedCount++
-				if progressCallback != nil {
-					progressCallback(*processedCount, totalFiles, sanitizePath(filePath))
-				}
-				continue
-			}
-
-			slog.Debug("Converted DDS to PNG", "path", filePath, "output", outputPath)
-		} else {
-			// Decode UTF-16LE text files to UTF-8 for human readability
-			if strings.HasSuffix(strings.ToLower(filePath), ".txt") || strings.HasSuffix(strings.ToLower(filePath), ".text") {
-				text, err := DecodeUTF16LE(fileData)
-				if err != nil {
-					slog.Debug("Text file is not UTF-16LE, writing as-is", "path", filePath, "error", err)
-				} else {
-					fileData = []byte(text)
-					slog.Debug("Decoded text file to UTF-8", "path", filePath, "output", outputPath)
-				}
-			}
-
-			if err := os.WriteFile(outputPath, fileData, 0644); err != nil {
-				return *processedCount, fmt.Errorf("writing file %s: %w", outputPath, err)
-			}
-
-			slog.Debug("Copied file", "path", filePath, "output", outputPath)
-		}
-
-		// Update progress for all files
-		*processedCount++
-		if progressCallback != nil {
-			progressCallback(*processedCount, totalFiles, sanitizePath(filePath))
-		}
+		job := fileJob{filePath: filePath, outputPath: outputPath, fileData: fileData}
+		g.Go(func() error {
+			return e.processFile(job, reportProgress)
+		})
 	}
 
-	if skipped > 0 {
-		slog.Info("Skipped already exported files", "count", skipped)
+	if err := g.Wait(); err != nil {
+		return int(processed.Load()), err
 	}
 
+	if s := skipped.Load(); s > 0 {
+		slog.Info("Skipped already exported files", "count", s)
+	}
+
+	*processedCount = int(processed.Load())
 	return *processedCount, nil
+}
+
+func (e *Exporter) processFile(job fileJob, reportProgress func(string)) error {
+	if strings.HasSuffix(job.filePath, ".dds") {
+		if err := ConvertDDSToPNG(job.fileData, nil, job.outputPath); err != nil {
+			slog.Warn("Skipping DDS conversion", "path", job.filePath, "error", err)
+			reportProgress(sanitizePath(job.filePath))
+			return nil
+		}
+		slog.Debug("Converted DDS to PNG", "path", job.filePath, "output", job.outputPath)
+	} else {
+		data := job.fileData
+		if strings.HasSuffix(strings.ToLower(job.filePath), ".txt") || strings.HasSuffix(strings.ToLower(job.filePath), ".text") {
+			text, err := DecodeUTF16LE(data)
+			if err != nil {
+				slog.Debug("Text file is not UTF-16LE, writing as-is", "path", job.filePath, "error", err)
+			} else {
+				data = []byte(text)
+				slog.Debug("Decoded text file to UTF-8", "path", job.filePath, "output", job.outputPath)
+			}
+		}
+
+		if err := os.WriteFile(job.outputPath, data, 0644); err != nil {
+			return fmt.Errorf("writing file %s: %w", job.outputPath, err)
+		}
+		slog.Debug("Copied file", "path", job.filePath, "output", job.outputPath)
+	}
+
+	reportProgress(sanitizePath(job.filePath))
+	return nil
 }
 
 // sanitizePath sanitizes a file path for use as a filename

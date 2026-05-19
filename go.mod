@@ -1,6 +1,6 @@
 module github.com/jchantrell/exiledb
 
-go 1.25
+go 1.25.0
 
 require (
 	github.com/lmittmann/tint v1.1.2
@@ -19,5 +19,6 @@ require (
 	github.com/mattn/go-runewidth v0.0.16 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/spf13/pflag v1.0.6 // indirect
+	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/sys v0.36.0 // indirect
 )
