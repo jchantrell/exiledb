@@ -40,7 +40,8 @@ func ConvertDDSToPNG(ddsData []byte, crop *CropParams, outputPath string) error 
 	}
 	defer f.Close()
 
-	if err := png.Encode(f, img); err != nil {
+	enc := &png.Encoder{CompressionLevel: png.BestSpeed}
+	if err := enc.Encode(f, img); err != nil {
 		return fmt.Errorf("encoding PNG: %w", err)
 	}
 
