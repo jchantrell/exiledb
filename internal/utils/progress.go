@@ -3,6 +3,7 @@ package utils
 import (
 	"fmt"
 	"os"
+	"sync/atomic"
 	"time"
 
 	"github.com/vbauerster/mpb/v8"
@@ -15,7 +16,7 @@ type Progress struct {
 	container   *mpb.Progress
 	bar         *mpb.Bar
 	enabled     bool
-	description string
+	description atomic.Value
 }
 
 var descLength = 30
@@ -28,11 +29,11 @@ func NewProgress(total int, enabled bool) *Progress {
 	var bar *mpb.Bar
 
 	p := &Progress{
-		container:   container,
-		bar:         bar,
-		enabled:     enabled && isTerm,
-		description: "",
+		container: container,
+		bar:       bar,
+		enabled:   enabled && isTerm,
 	}
+	p.description.Store("")
 
 	if enabled && isTerm {
 		// Add space before progress bar
@@ -54,10 +55,11 @@ func NewProgress(total int, enabled bool) *Progress {
 				decor.CountersNoUnit("%d/%d", decor.WC{C: decor.DindentRight}),
 				decor.Name(" | "),
 				decor.Any(func(statistics decor.Statistics) string {
-					if len(p.description) > descLength {
-						return p.description[:descLength-2] + ".."
+					desc := p.description.Load().(string)
+					if len(desc) > descLength {
+						return desc[:descLength-2] + ".."
 					}
-					return p.description
+					return desc
 				}, decor.WC{W: descLength, C: decor.DindentRight}),
 			),
 		)
@@ -85,8 +87,7 @@ func (p *Progress) Update(current int, description string) {
 		return
 	}
 
-	// Update the description which will be shown by the dynamic decorator
-	p.description = description
+	p.description.Store(description)
 
 	// Set the bar to the current value
 	p.bar.SetCurrent(int64(current))
