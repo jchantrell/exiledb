@@ -95,11 +95,9 @@ func (b *bundle) Size() int64 {
 
 func (b *bundle) ReadAt(p []byte, off int64) (int, error) {
 	if off+int64(len(p)) > b.size {
-		// FIXME: This could be handled more gracefully
 		return 0, fmt.Errorf("read outside bounds of file")
 	}
 
-	// Temporary buffers for compressed and decompressed data
 	ibuf := make([]byte, b.granularity+64)
 	obuf := make([]byte, b.granularity)
 
@@ -124,7 +122,7 @@ func (b *bundle) ReadAt(p []byte, off int64) (int, error) {
 			return 0, fmt.Errorf("decompression failed: %w", err)
 		}
 
-		copied := copy(p[n:], obuf[blkOff:])
+		copied := copy(p[n:], obuf[blkOff:rawSize])
 		n += copied
 		off += int64(copied)
 	}

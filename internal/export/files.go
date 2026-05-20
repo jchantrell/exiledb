@@ -225,13 +225,7 @@ func (e *Exporter) exportSprites(files []string, parsedLists [][]SpriteImage, to
 	return *processedCount, nil
 }
 
-type fileJob struct {
-	filePath   string
-	outputPath string
-	fileData   []byte
-}
-
-// exportRegularFiles exports non-sprite files using parallel workers for CPU-bound conversions
+// exportRegularFiles exports non-sprite files using parallel workers
 func (e *Exporter) exportRegularFiles(files []string, totalFiles int, processedCount *int, progressCallback ProgressCallback) (int, error) {
 	regularFiles := make([]string, 0)
 	for _, file := range files {
@@ -264,6 +258,8 @@ func (e *Exporter) exportRegularFiles(files []string, totalFiles int, processedC
 	var skipped atomic.Int64
 
 	for _, filePath := range regularFiles {
+		filePath := filePath
+
 		var outputPath string
 		if strings.HasSuffix(filePath, ".dds") {
 			outputPath = filepath.Join(e.outputDir, strings.TrimSuffix(sanitizePath(filePath), ".dds")+".png")
@@ -277,16 +273,42 @@ func (e *Exporter) exportRegularFiles(files []string, totalFiles int, processedC
 			continue
 		}
 
-		fileData, err := e.loader.GetFile(filePath)
-		if err != nil {
-			slog.Warn("Skipping file export", "path", filePath, "error", err)
-			reportProgress(sanitizePath(filePath))
-			continue
-		}
-
-		job := fileJob{filePath: filePath, outputPath: outputPath, fileData: fileData}
 		g.Go(func() error {
-			return e.processFile(job, reportProgress)
+			fileData, err := e.loader.GetFile(filePath)
+			if err != nil {
+				slog.Warn("Skipping file export", "path", filePath, "error", err)
+				reportProgress(sanitizePath(filePath))
+				return nil
+			}
+
+			if strings.HasSuffix(filePath, ".dds") {
+				if err := ConvertDDSToPNG(fileData, nil, outputPath); err != nil {
+					slog.Warn("Skipping DDS conversion", "path", filePath, "error", err)
+					reportProgress(sanitizePath(filePath))
+					return nil
+				}
+				slog.Debug("Converted DDS to PNG", "path", filePath, "output", outputPath)
+			} else {
+				data := fileData
+				lower := strings.ToLower(filePath)
+				if strings.HasSuffix(lower, ".txt") || strings.HasSuffix(lower, ".text") {
+					text, err := DecodeUTF16LE(data)
+					if err != nil {
+						slog.Debug("Text file is not UTF-16LE, writing as-is", "path", filePath, "error", err)
+					} else {
+						data = []byte(text)
+						slog.Debug("Decoded text file to UTF-8", "path", filePath, "output", outputPath)
+					}
+				}
+
+				if err := os.WriteFile(outputPath, data, 0644); err != nil {
+					return fmt.Errorf("writing file %s: %w", outputPath, err)
+				}
+				slog.Debug("Copied file", "path", filePath, "output", outputPath)
+			}
+
+			reportProgress(sanitizePath(filePath))
+			return nil
 		})
 	}
 
@@ -300,36 +322,6 @@ func (e *Exporter) exportRegularFiles(files []string, totalFiles int, processedC
 
 	*processedCount = int(processed.Load())
 	return *processedCount, nil
-}
-
-func (e *Exporter) processFile(job fileJob, reportProgress func(string)) error {
-	if strings.HasSuffix(job.filePath, ".dds") {
-		if err := ConvertDDSToPNG(job.fileData, nil, job.outputPath); err != nil {
-			slog.Warn("Skipping DDS conversion", "path", job.filePath, "error", err)
-			reportProgress(sanitizePath(job.filePath))
-			return nil
-		}
-		slog.Debug("Converted DDS to PNG", "path", job.filePath, "output", job.outputPath)
-	} else {
-		data := job.fileData
-		if strings.HasSuffix(strings.ToLower(job.filePath), ".txt") || strings.HasSuffix(strings.ToLower(job.filePath), ".text") {
-			text, err := DecodeUTF16LE(data)
-			if err != nil {
-				slog.Debug("Text file is not UTF-16LE, writing as-is", "path", job.filePath, "error", err)
-			} else {
-				data = []byte(text)
-				slog.Debug("Decoded text file to UTF-8", "path", job.filePath, "output", job.outputPath)
-			}
-		}
-
-		if err := os.WriteFile(job.outputPath, data, 0644); err != nil {
-			return fmt.Errorf("writing file %s: %w", job.outputPath, err)
-		}
-		slog.Debug("Copied file", "path", job.filePath, "output", job.outputPath)
-	}
-
-	reportProgress(sanitizePath(job.filePath))
-	return nil
 }
 
 // sanitizePath sanitizes a file path for use as a filename
