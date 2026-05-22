@@ -299,6 +299,14 @@ func (e *Exporter) exportRegularFiles(files []string, totalFiles int, processedC
 						data = []byte(text)
 						slog.Debug("Decoded text file to UTF-8", "path", filePath, "output", outputPath)
 					}
+				} else if strings.HasSuffix(lower, ".ast") {
+					decompressed, err := DecompressAST(data)
+					if err != nil {
+						slog.Warn("AST decompression failed, writing as-is", "path", filePath, "error", err)
+					} else {
+						data = decompressed
+						slog.Debug("Decompressed AST animation payload", "path", filePath)
+					}
 				}
 
 				if err := os.WriteFile(outputPath, data, 0644); err != nil {
