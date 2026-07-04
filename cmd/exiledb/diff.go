@@ -1,79 +1,58 @@
 package main
 
 import (
-	"encoding/json"
-	"fmt"
-	"os"
 	"sort"
 
 	"github.com/spf13/cobra"
 )
 
-// ManifestDiff describes file changes between two manifests.
-type ManifestDiff struct {
-	OldPatch     string   `json:"old_patch,omitempty"`
-	NewPatch     string   `json:"new_patch,omitempty"`
-	AddedCount   int      `json:"added_count"`
-	RemovedCount int      `json:"removed_count"`
-	Added        []string `json:"added"`
-	Removed      []string `json:"removed"`
-}
-
-var diffOutput string
-
 var diffCmd = &cobra.Command{
-	Use:   "diff <old-manifest.json> <new-manifest.json>",
+	Use:   "diff <old-manifest> <new-manifest>",
 	Short: "Diff two manifest files to see what changed between game versions",
 	Long: `Diff compares two manifests produced by the manifest command and
-outputs the file paths that were added and removed between them as JSON.`,
+outputs added paths prefixed with "+" and removed paths prefixed with "-".`,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		oldManifest, err := readManifest(args[0])
+		oldFiles, err := readLines(args[0])
 		if err != nil {
 			return err
 		}
-		newManifest, err := readManifest(args[1])
+		newFiles, err := readLines(args[1])
 		if err != nil {
 			return err
 		}
 
-		return writeJSON(diffManifests(oldManifest, newManifest), diffOutput)
+		added, removed := diffManifests(oldFiles, newFiles)
+
+		lines := make([]string, 0, len(added)+len(removed))
+		for _, f := range removed {
+			lines = append(lines, "- "+f)
+		}
+		for _, f := range added {
+			lines = append(lines, "+ "+f)
+		}
+
+		return writeLines(lines)
 	},
 }
 
-func readManifest(path string) (*Manifest, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("reading manifest %s: %w", path, err)
-	}
-
-	var m Manifest
-	if err := json.Unmarshal(data, &m); err != nil {
-		return nil, fmt.Errorf("parsing manifest %s: %w", path, err)
-	}
-	if m.Files == nil {
-		return nil, fmt.Errorf("manifest %s has no files field", path)
-	}
-	return &m, nil
-}
-
-func diffManifests(oldManifest, newManifest *Manifest) *ManifestDiff {
-	oldSet := make(map[string]bool, len(oldManifest.Files))
-	for _, f := range oldManifest.Files {
+func diffManifests(oldFiles, newFiles []string) (added, removed []string) {
+	oldSet := make(map[string]bool, len(oldFiles))
+	for _, f := range oldFiles {
 		oldSet[f] = true
 	}
-	newSet := make(map[string]bool, len(newManifest.Files))
-	for _, f := range newManifest.Files {
+	newSet := make(map[string]bool, len(newFiles))
+	for _, f := range newFiles {
 		newSet[f] = true
 	}
 
-	added := []string{}
+	added = []string{}
 	for f := range newSet {
 		if !oldSet[f] {
 			added = append(added, f)
 		}
 	}
-	removed := []string{}
+	removed = []string{}
 	for f := range oldSet {
 		if !newSet[f] {
 			removed = append(removed, f)
@@ -81,18 +60,9 @@ func diffManifests(oldManifest, newManifest *Manifest) *ManifestDiff {
 	}
 	sort.Strings(added)
 	sort.Strings(removed)
-
-	return &ManifestDiff{
-		OldPatch:     oldManifest.Patch,
-		NewPatch:     newManifest.Patch,
-		AddedCount:   len(added),
-		RemovedCount: len(removed),
-		Added:        added,
-		Removed:      removed,
-	}
+	return added, removed
 }
 
 func init() {
 	rootCmd.AddCommand(diffCmd)
-	diffCmd.Flags().StringVarP(&diffOutput, "output", "o", "", "write diff to file instead of stdout")
 }

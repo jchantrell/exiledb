@@ -8,70 +8,47 @@ import (
 )
 
 func TestDiffManifests(t *testing.T) {
-	oldManifest := &Manifest{
-		Patch: "4.4.0.12",
-		Files: []string{"data/a.dat", "data/b.dat", "art/removed.dds"},
-	}
-	newManifest := &Manifest{
-		Patch: "4.4.0.13",
-		Files: []string{"data/b.dat", "data/a.dat", "data/new.dat", "art/added.dds"},
-	}
+	oldFiles := []string{"data/a.dat", "data/b.dat", "art/removed.dds"}
+	newFiles := []string{"data/b.dat", "data/a.dat", "data/new.dat", "art/added.dds"}
 
-	diff := diffManifests(oldManifest, newManifest)
+	added, removed := diffManifests(oldFiles, newFiles)
 
-	if diff.OldPatch != "4.4.0.12" || diff.NewPatch != "4.4.0.13" {
-		t.Errorf("patches not carried through: %q -> %q", diff.OldPatch, diff.NewPatch)
-	}
 	wantAdded := []string{"art/added.dds", "data/new.dat"}
-	if !reflect.DeepEqual(diff.Added, wantAdded) {
-		t.Errorf("added = %v, want %v", diff.Added, wantAdded)
+	if !reflect.DeepEqual(added, wantAdded) {
+		t.Errorf("added = %v, want %v", added, wantAdded)
 	}
 	wantRemoved := []string{"art/removed.dds"}
-	if !reflect.DeepEqual(diff.Removed, wantRemoved) {
-		t.Errorf("removed = %v, want %v", diff.Removed, wantRemoved)
-	}
-	if diff.AddedCount != 2 || diff.RemovedCount != 1 {
-		t.Errorf("counts = %d added, %d removed; want 2, 1", diff.AddedCount, diff.RemovedCount)
+	if !reflect.DeepEqual(removed, wantRemoved) {
+		t.Errorf("removed = %v, want %v", removed, wantRemoved)
 	}
 }
 
 func TestDiffManifestsIdentical(t *testing.T) {
-	m := &Manifest{Files: []string{"data/a.dat"}}
+	files := []string{"data/a.dat"}
 
-	diff := diffManifests(m, m)
+	added, removed := diffManifests(files, files)
 
-	if len(diff.Added) != 0 || len(diff.Removed) != 0 {
-		t.Errorf("expected empty diff, got added=%v removed=%v", diff.Added, diff.Removed)
+	if len(added) != 0 || len(removed) != 0 {
+		t.Errorf("expected empty diff, got added=%v removed=%v", added, removed)
 	}
 }
 
-func TestReadManifest(t *testing.T) {
+func TestReadLines(t *testing.T) {
 	dir := t.TempDir()
 
-	valid := filepath.Join(dir, "valid.json")
-	os.WriteFile(valid, []byte(`{"format_version":1,"patch":"4.4.0.13","file_count":1,"files":["data/a.dat"]}`), 0o644)
+	path := filepath.Join(dir, "manifest.txt")
+	os.WriteFile(path, []byte("data/a.dat\r\ndata/b.dat\n\ndata/c.dat\n"), 0o644)
 
-	m, err := readManifest(valid)
+	got, err := readLines(path)
 	if err != nil {
-		t.Fatalf("readManifest(valid) error: %v", err)
+		t.Fatalf("readLines error: %v", err)
 	}
-	if m.Patch != "4.4.0.13" || len(m.Files) != 1 {
-		t.Errorf("unexpected manifest: %+v", m)
-	}
-
-	noFiles := filepath.Join(dir, "nofiles.json")
-	os.WriteFile(noFiles, []byte(`{"patch":"1.0"}`), 0o644)
-	if _, err := readManifest(noFiles); err == nil {
-		t.Error("expected error for manifest without files field")
+	want := []string{"data/a.dat", "data/b.dat", "data/c.dat"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("readLines = %v, want %v", got, want)
 	}
 
-	invalid := filepath.Join(dir, "invalid.json")
-	os.WriteFile(invalid, []byte(`not json`), 0o644)
-	if _, err := readManifest(invalid); err == nil {
-		t.Error("expected error for invalid JSON")
-	}
-
-	if _, err := readManifest(filepath.Join(dir, "missing.json")); err == nil {
+	if _, err := readLines(filepath.Join(dir, "missing.txt")); err == nil {
 		t.Error("expected error for missing file")
 	}
 }

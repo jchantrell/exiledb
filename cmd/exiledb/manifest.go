@@ -1,32 +1,20 @@
 package main
 
 import (
-	"encoding/json"
+	"bufio"
 	"fmt"
 	"os"
 	"sort"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
 
-// Manifest is a snapshot of every file path in the game's bundle index.
-// Files are sorted so output is deterministic and diffable across versions.
-type Manifest struct {
-	FormatVersion int      `json:"format_version"`
-	Patch         string   `json:"patch,omitempty"`
-	FileCount     int      `json:"file_count"`
-	Files         []string `json:"files"`
-}
-
-const manifestFormatVersion = 1
-
-var manifestOutput string
-
 var manifestCmd = &cobra.Command{
 	Use:   "manifest",
-	Short: "Dump all file paths in the bundle index as JSON",
-	Long: `Manifest traverses the entire bundle index and outputs every file path
-as a JSON document. Output is deterministic (sorted paths), making it suitable
+	Short: "Dump all file paths in the bundle index, one per line",
+	Long: `Manifest traverses the entire bundle index and outputs every file path,
+one per line. Output is deterministic (sorted paths), making it suitable
 for committing to version control and diffing between game versions with
 the diff command.
 
@@ -41,14 +29,7 @@ Use --ggpk to read from a Content.ggpk file instead of downloading from CDN.`,
 		sort.Strings(files)
 		files = dedupeNonEmpty(files)
 
-		manifest := &Manifest{
-			FormatVersion: manifestFormatVersion,
-			Patch:         cfg.Patch,
-			FileCount:     len(files),
-			Files:         files,
-		}
-
-		return writeJSON(manifest, manifestOutput)
+		return writeLines(files)
 	},
 }
 
@@ -67,27 +48,40 @@ func dedupeNonEmpty(sorted []string) []string {
 	return result
 }
 
-// writeJSON marshals v with indentation and writes it to path,
-// or to stdout when path is empty.
-func writeJSON(v any, path string) error {
-	data, err := json.MarshalIndent(v, "", "  ")
-	if err != nil {
-		return fmt.Errorf("encoding JSON: %w", err)
+// writeLines writes one line per entry to stdout.
+func writeLines(lines []string) error {
+	w := bufio.NewWriter(os.Stdout)
+	for _, line := range lines {
+		if _, err := w.WriteString(line); err != nil {
+			return fmt.Errorf("writing output: %w", err)
+		}
+		if err := w.WriteByte('\n'); err != nil {
+			return fmt.Errorf("writing output: %w", err)
+		}
 	}
-	data = append(data, '\n')
-
-	if path == "" {
-		_, err = os.Stdout.Write(data)
-		return err
-	}
-
-	if err := os.WriteFile(path, data, 0o644); err != nil {
-		return fmt.Errorf("writing %s: %w", path, err)
+	if err := w.Flush(); err != nil {
+		return fmt.Errorf("writing output: %w", err)
 	}
 	return nil
 }
 
+// readLines reads a line-separated manifest file, ignoring blank lines.
+func readLines(path string) ([]string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("reading manifest %s: %w", path, err)
+	}
+
+	var lines []string
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimRight(line, "\r")
+		if line != "" {
+			lines = append(lines, line)
+		}
+	}
+	return lines, nil
+}
+
 func init() {
 	rootCmd.AddCommand(manifestCmd)
-	manifestCmd.Flags().StringVarP(&manifestOutput, "output", "o", "", "write manifest to file instead of stdout")
 }

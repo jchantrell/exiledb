@@ -33,9 +33,9 @@ https://snosme.github.io/poe-dat-viewer/
 # Download bundles and extract data to DB
 ./exiledb extract --patch 4.4.0.13 --tables BaseItemTypes,Mods
 
-# Snapshot every file path in the game to JSON, then diff between versions
-./exiledb manifest --patch 4.4.0.13 -o 4.4.0.13.json
-./exiledb diff 4.4.0.12.json 4.4.0.13.json
+# Snapshot every file path in the game (one per line), then diff between versions
+./exiledb manifest --patch 4.4.0.13 > 4.4.0.13.txt
+./exiledb diff 4.4.0.12.txt 4.4.0.13.txt
 
 # Or extract directly from a Content.ggpk file instead of downloading from CDN
 ./exiledb list --ggpk /path/to/Content.ggpk
