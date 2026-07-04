@@ -1,5 +1,36 @@
 # Changelog
 
+## [1.4.0](https://github.com/jchantrell/exiledb/compare/v1.3.0...v1.4.0) (2026-07-04)
+
+
+### Features
+
+* add manifest and diff commands for tracking files across game versions ([7e1174b](https://github.com/jchantrell/exiledb/commit/7e1174b8c6c87a4fe5a7068b4d46e364fb8139bc))
+* decompress Oodle-compressed animation payload in .ast files ([8fde26c](https://github.com/jchantrell/exiledb/commit/8fde26c9e8d49750b0578264c67baf8e81343e2e))
+* replace ImageMagick with native Go DDS decoder ([85fdb7c](https://github.com/jchantrell/exiledb/commit/85fdb7c5ce3b0de1320ac5d12e5fb2a180b578d0))
+* support partial path matching for file extraction ([a570755](https://github.com/jchantrell/exiledb/commit/a5707556ff74c1305941f43308f47c1911162338))
+
+
+### Bug Fixes
+
+* gracefully handle non-UTF-16LE text files during extraction ([2d079b9](https://github.com/jchantrell/exiledb/commit/2d079b9db2a79e49abd0ee97f960fd355d53d39c))
+* handle DXT1 1-bit alpha and skip unsupported DDS formats ([e358cc1](https://github.com/jchantrell/exiledb/commit/e358cc1a461b0666b3a3a8ab4a004ef2faa9ce22))
+* race condition in progress bar description updates ([e604941](https://github.com/jchantrell/exiledb/commit/e604941f28a49b38e0200479a550d16d3442cea1))
+* scan animation headers instead of trusting u8 animCount ([ce0a205](https://github.com/jchantrell/exiledb/commit/ce0a205ea19519f9a86f3afdc347c2b1d01d35d5))
+* skip table extraction when --tables not provided ([e538a78](https://github.com/jchantrell/exiledb/commit/e538a7877719b32a6b0f1feb1017d20c79de6d39))
+
+
+### Performance Improvements
+
+* cache opened bundles to avoid redundant parsing ([ed074d7](https://github.com/jchantrell/exiledb/commit/ed074d7740889a31945dabde298543fc4636ee6e))
+* cache parsed bundle index to disk ([7a68f84](https://github.com/jchantrell/exiledb/commit/7a68f8415dbda2cac86c34869b2194359d25152e))
+* parallelize file extraction with worker pool ([26aa5d6](https://github.com/jchantrell/exiledb/commit/26aa5d6a7d1082688c15479cd312d543ae192ad1))
+* remove unused raw slice accumulation in DDS decompressors ([fd8315f](https://github.com/jchantrell/exiledb/commit/fd8315f2d7bfcf8d1ae5354c5bb485d706383a7f))
+* skip already exported files during extraction ([aeeabeb](https://github.com/jchantrell/exiledb/commit/aeeabebab6f71124e8d57b1cd94a3185fa867133))
+* sort files by bundle before extraction ([3346a27](https://github.com/jchantrell/exiledb/commit/3346a2749591d07289c2d7fe127c101086389968))
+* use BestSpeed PNG compression level ([b79ba83](https://github.com/jchantrell/exiledb/commit/b79ba8330ff98c7c6e5c9a2a3edce1482e4459b6))
+* use binary search for path filtering in list command ([c93367a](https://github.com/jchantrell/exiledb/commit/c93367ad1d7016b94c1c6425654444d827f55e17))
+
 ## [1.3.0](https://github.com/jchantrell/exiledb/compare/v1.2.0...v1.3.0) (2026-05-19)
 
 
