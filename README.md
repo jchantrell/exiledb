@@ -3,7 +3,7 @@
 [![](https://img.shields.io/github/downloads/jchantrell/exiledb/total?label=Downloads)](https://github.com/jchantrell/exiledb/releases)
 
 > [!IMPORTANT]
-> This tool is a work in progress and is being used to test various LLM assisted development methods. I am not accepting PRs but you're welcome to open an issue or fork the repo.
+> This tool is a work in progress. I am not accepting PRs but you're welcome to open an issue or fork the repo.
 
 ExileDB is a CLI tool that makes working with Path of Exile 1 & 2's various data formats easier. Its primary purpose is to use the [community's schema](https://github.com/poe-tool-dev/dat-schema) to parse and extract data into local SQLite databases, which makes it significantly easier to query the complex relationships and turn it into more usable formats.
 
