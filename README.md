@@ -30,12 +30,15 @@ https://snosme.github.io/poe-dat-viewer/
 ./exiledb list                     # list root directory
 ./exiledb list --path data/balance # list a specific path
 
+# Or dump every file path in the game (one per line) and grep it
+./exiledb manifest --patch 4.4.0.13 > 4.4.0.13.txt
+grep waystone 4.4.0.13.txt
+
+# Diff manifests to see what changed between game versions
+./exiledb diff 4.4.0.12.txt 4.4.0.13.txt
+
 # Download bundles and extract data to DB
 ./exiledb extract --patch 4.4.0.13 --tables BaseItemTypes,Mods
-
-# Snapshot every file path in the game (one per line), then diff between versions
-./exiledb manifest --patch 4.4.0.13 > 4.4.0.13.txt
-./exiledb diff 4.4.0.12.txt 4.4.0.13.txt
 
 # Or extract directly from a Content.ggpk file instead of downloading from CDN
 ./exiledb list --ggpk /path/to/Content.ggpk
