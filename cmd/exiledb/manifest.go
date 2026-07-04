@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"sort"
-	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -16,7 +15,7 @@ var manifestCmd = &cobra.Command{
 	Long: `Manifest traverses the entire bundle index and outputs every file path,
 one per line. Output is deterministic (sorted paths), making it suitable
 for committing to version control and diffing between game versions with
-the diff command.
+standard tools like diff and comm.
 
 Use --ggpk to read from a Content.ggpk file instead of downloading from CDN.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -63,23 +62,6 @@ func writeLines(lines []string) error {
 		return fmt.Errorf("writing output: %w", err)
 	}
 	return nil
-}
-
-// readLines reads a line-separated manifest file, ignoring blank lines.
-func readLines(path string) ([]string, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("reading manifest %s: %w", path, err)
-	}
-
-	var lines []string
-	for _, line := range strings.Split(string(data), "\n") {
-		line = strings.TrimRight(line, "\r")
-		if line != "" {
-			lines = append(lines, line)
-		}
-	}
-	return lines, nil
 }
 
 func init() {

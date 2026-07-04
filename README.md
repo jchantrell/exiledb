@@ -35,7 +35,7 @@ https://snosme.github.io/poe-dat-viewer/
 grep waystone 4.4.0.13.txt
 
 # Diff manifests to see what changed between game versions
-./exiledb diff 4.4.0.12.txt 4.4.0.13.txt
+diff 4.4.0.12.txt 4.4.0.13.txt
 
 # Download bundles and extract data to DB
 ./exiledb extract --patch 4.4.0.13 --tables BaseItemTypes,Mods
