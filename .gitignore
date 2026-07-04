@@ -6,3 +6,4 @@
 /examples/*/*.json
 /exile.db
 *.idx
+/*.txt
