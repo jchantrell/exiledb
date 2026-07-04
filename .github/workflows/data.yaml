@@ -78,11 +78,9 @@ jobs:
             exit 0
           fi
 
-          MANIFEST_OK=false
-          curl -sfIL -o /dev/null "https://github.com/$REPO/releases/download/data-$GAME-$VERSION/manifest.txt" && MANIFEST_OK=true
-          POINTER=$(curl -sfL "https://github.com/$REPO/releases/download/data-$GAME-latest/latest.json" | jq -r '.version') || POINTER=""
-          if [ "$MANIFEST_OK" = "true" ] && [ "$POINTER" = "$VERSION" ]; then RUN=false; else RUN=true; fi
-          echo "$GAME gate: version=$VERSION manifest_ok=$MANIFEST_OK pointer=$POINTER run=$RUN"
+          RUN=true
+          curl -sfIL -o /dev/null "https://github.com/$REPO/releases/download/data-$GAME-$VERSION/manifest.txt" && RUN=false
+          echo "$GAME gate: version=$VERSION run=$RUN"
           echo "run=$RUN" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@v5
@@ -108,13 +106,17 @@ jobs:
 
       - name: Diff against previous release
         if: steps.gate.outputs.run == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           case "$GAME" in
             poe1) TITLE="PoE1" ;;
             poe2) TITLE="PoE2" ;;
           esac
           TOTAL=$(wc -l < out/manifest.txt)
-          PREV=$(curl -sfL "https://github.com/$REPO/releases/download/data-$GAME-latest/latest.json" | jq -r '.version') || PREV=""
+          TAGS=$(gh release list --repo "$REPO" --limit 1000 --json tagName --jq '.[].tagName')
+          PREV=$({ printf '%s\n' "$TAGS" | sed -n "s/^data-$GAME-//p" | grep -E '^[0-9]+(\.[0-9]+)+$'; echo "$VERSION"; } \
+            | sort -uV | awk -v v="$VERSION" '$0==v{print p; exit}{p=$0}')
 
           if [ -n "$PREV" ] && [ "$PREV" != "$VERSION" ] \
             && curl -sfL "https://github.com/$REPO/releases/download/data-$GAME-$PREV/manifest.txt" -o out/prev.txt \
