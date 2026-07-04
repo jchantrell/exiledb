@@ -31,7 +31,11 @@ https://snosme.github.io/poe-dat-viewer/
 ./exiledb list --path data/balance # list a specific path
 
 # Download bundles and extract data to DB
-./exiledb extract # uses exiledb.yaml for configuration
+./exiledb extract --patch 4.4.0.13 --tables BaseItemTypes,Mods
+
+# Snapshot every file path in the game to JSON, then diff between versions
+./exiledb manifest --patch 4.4.0.13 -o 4.4.0.13.json
+./exiledb diff 4.4.0.12.json 4.4.0.13.json
 
 # Or extract directly from a Content.ggpk file instead of downloading from CDN
 ./exiledb list --ggpk /path/to/Content.ggpk
