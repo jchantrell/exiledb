@@ -1,0 +1,159 @@
+name: Data
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      poe1_version:
+        description: 'PoE1 patch override (blank = current)'
+        required: false
+      poe2_version:
+        description: 'PoE2 patch override (blank = current)'
+        required: false
+
+concurrency:
+  group: data
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  fetch-versions:
+    name: Fetch PoE Versions
+    runs-on: ubuntu-latest
+    outputs:
+      poe1_version: ${{ steps.versions.outputs.poe1_version }}
+      poe2_version: ${{ steps.versions.outputs.poe2_version }}
+    steps:
+      - name: Fetch and validate versions
+        id: versions
+        env:
+          POE1_OVERRIDE: ${{ inputs.poe1_version }}
+          POE2_OVERRIDE: ${{ inputs.poe2_version }}
+        run: |
+          VERSIONS=$(curl -sf https://poe-versions.obsoleet.org/) || VERSIONS='{}'
+          POE1=${POE1_OVERRIDE:-$(echo "$VERSIONS" | jq -r '.poe')}
+          POE2=${POE2_OVERRIDE:-$(echo "$VERSIONS" | jq -r '.poe2')}
+
+          if [[ "$POE1" =~ ^3(\.[0-9]+)+$ ]]; then
+            echo "poe1_version=$POE1" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::poe1 version invalid: '$POE1' - skipping poe1"
+          fi
+          if [[ "$POE2" =~ ^4(\.[0-9]+)+$ ]]; then
+            echo "poe2_version=$POE2" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::poe2 version invalid: '$POE2' - skipping poe2"
+          fi
+
+  release:
+    name: Release ${{ matrix.game }} data
+    needs: fetch-versions
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        game: [poe1, poe2]
+    env:
+      GAME: ${{ matrix.game }}
+      VERSION: ${{ needs.fetch-versions.outputs[format('{0}_version', matrix.game)] }}
+      REPO: ${{ github.repository }}
+    steps:
+      - name: Decide whether to run
+        id: gate
+        env:
+          FORCE: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          if [ -z "$VERSION" ]; then
+            echo "no valid $GAME version, skipping"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$FORCE" = "true" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          MANIFEST_OK=false
+          curl -sfIL -o /dev/null "https://github.com/$REPO/releases/download/data-$GAME-$VERSION/manifest.txt" && MANIFEST_OK=true
+          POINTER=$(curl -sfL "https://github.com/$REPO/releases/download/data-$GAME-latest/latest.json" | jq -r '.version') || POINTER=""
+          if [ "$MANIFEST_OK" = "true" ] && [ "$POINTER" = "$VERSION" ]; then RUN=false; else RUN=true; fi
+          echo "$GAME gate: version=$VERSION manifest_ok=$MANIFEST_OK pointer=$POINTER run=$RUN"
+          echo "run=$RUN" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v5
+        if: steps.gate.outputs.run == 'true'
+
+      - uses: actions/setup-go@v5
+        if: steps.gate.outputs.run == 'true'
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Generate manifest
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          go build -o exiledb ./cmd/exiledb
+          mkdir -p out
+          ./exiledb manifest --patch "$VERSION" > out/manifest.txt
+
+          LINES=$(wc -l < out/manifest.txt)
+          if [ "$LINES" -lt 100000 ]; then
+            echo "::error::$GAME manifest has only $LINES lines, refusing to publish"
+            exit 1
+          fi
+
+      - name: Diff against previous release
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          case "$GAME" in
+            poe1) TITLE="PoE1" ;;
+            poe2) TITLE="PoE2" ;;
+          esac
+          TOTAL=$(wc -l < out/manifest.txt)
+          PREV=$(curl -sfL "https://github.com/$REPO/releases/download/data-$GAME-latest/latest.json" | jq -r '.version') || PREV=""
+
+          if [ -n "$PREV" ] && [ "$PREV" != "$VERSION" ] \
+            && curl -sfL "https://github.com/$REPO/releases/download/data-$GAME-$PREV/manifest.txt" -o out/prev.txt \
+            && [ "$(wc -l < out/prev.txt)" -ge 100000 ]; then
+            LC_ALL=C comm -13 out/prev.txt out/manifest.txt > out/added-files.txt
+            LC_ALL=C comm -23 out/prev.txt out/manifest.txt > out/removed-files.txt
+            ADDED=$(wc -l < out/added-files.txt)
+            REMOVED=$(wc -l < out/removed-files.txt)
+            {
+              echo "File manifest for $TITLE patch $VERSION."
+              echo
+              echo "Compared against $PREV:"
+              echo "- Total files: $TOTAL"
+              echo "- Added: $ADDED (\`added-files.txt\`)"
+              echo "- Removed: $REMOVED (\`removed-files.txt\`)"
+            } > out/notes.md
+          else
+            {
+              echo "File manifest for $TITLE patch $VERSION."
+              echo
+              echo "- Total files: $TOTAL"
+              echo
+              echo "No previous release available to diff against."
+            } > out/notes.md
+          fi
+
+      - name: Upsert release
+        if: steps.gate.outputs.run == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: .github/scripts/data.sh "$GAME"
+
+      - name: Notify on failure
+        if: failure()
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          if [ -n "$DISCORD_WEBHOOK_URL" ]; then
+            curl -sS -H "Content-Type: application/json" \
+              -d "{\"content\":\"**DATA RELEASE FAILURE** — $GAME $VERSION\\nCheck: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" \
+              "$DISCORD_WEBHOOK_URL"
+          fi
