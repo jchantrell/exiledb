@@ -92,4 +92,3 @@ func FNVHashPath(path string) uint64 {
 
 	return hash
 }
-

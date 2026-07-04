@@ -24,4 +24,3 @@ func ToSnakeCase(s string) string {
 
 	return result.String()
 }
-

@@ -24,10 +24,10 @@ and processes them according to the latest schema to create a local database.`,
 		flags := cmd.Flags()
 
 		cfg = &config.Config{
-			Patch:    must(flags.GetString("patch")),
-			Database: must(flags.GetString("database")),
-			Tables:   mustSlice(flags.GetStringSlice("tables")),
-			Files:    mustSlice(flags.GetStringSlice("files")),
+			Patch:     must(flags.GetString("patch")),
+			Database:  must(flags.GetString("database")),
+			Tables:    mustSlice(flags.GetStringSlice("tables")),
+			Files:     mustSlice(flags.GetStringSlice("files")),
 			Languages: mustSlice(flags.GetStringSlice("languages")),
 			LogLevel:  must(flags.GetString("log-level")),
 			LogFormat: must(flags.GetString("log-format")),
@@ -97,5 +97,5 @@ func init() {
 	rootCmd.PersistentFlags().String("ggpk", "", "path to Content.ggpk file (reads from GGPK instead of CDN)")
 }
 
-func must(s string, _ error) string  { return s }
+func must(s string, _ error) string          { return s }
 func mustSlice(s []string, _ error) []string { return s }

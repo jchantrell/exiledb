@@ -28,4 +28,3 @@ type FileLocation struct {
 	Offset     uint32
 	Size       uint32
 }
-

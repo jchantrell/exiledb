@@ -60,4 +60,3 @@ func Rate(rate float64) string {
 		return fmt.Sprintf("%.2fM", rate/1000000)
 	}
 }
-

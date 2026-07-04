@@ -432,4 +432,3 @@ func (bfde *bundleFsDirEnt) Info() (fs.FileInfo, error) {
 		return &bundleFsFileInfo{bfde.file}, nil
 	}
 }
-
