@@ -21,7 +21,7 @@ binary with it if a newer version is available.`,
 			return fmt.Errorf("this binary was built from source without version information; upgrade with git pull or go install")
 		}
 
-		rel, err := upgrade.Check()
+		rel, err := upgrade.Check(cmd.Context())
 		if err != nil {
 			return fmt.Errorf("checking for latest release: %w", err)
 		}
@@ -41,7 +41,7 @@ binary with it if a newer version is available.`,
 		}
 
 		fmt.Printf("Downloading exiledb %s...\n", rel.TagName)
-		if err := upgrade.Apply(rel); err != nil {
+		if err := upgrade.Apply(cmd.Context(), rel); err != nil {
 			return err
 		}
 

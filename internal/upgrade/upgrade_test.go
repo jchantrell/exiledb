@@ -1,6 +1,7 @@
 package upgrade
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -115,7 +116,7 @@ func TestFetchLatestRelease(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	rel, err := fetchLatestRelease(srv.URL)
+	rel, err := fetchLatestRelease(context.Background(), srv.URL)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -133,7 +134,7 @@ func TestFetchLatestReleaseErrors(t *testing.T) {
 	}))
 	defer notFound.Close()
 
-	if _, err := fetchLatestRelease(notFound.URL); err == nil {
+	if _, err := fetchLatestRelease(context.Background(), notFound.URL); err == nil {
 		t.Error("expected error for 404 response")
 	}
 
@@ -142,7 +143,7 @@ func TestFetchLatestReleaseErrors(t *testing.T) {
 	}))
 	defer noTag.Close()
 
-	if _, err := fetchLatestRelease(noTag.URL); err == nil {
+	if _, err := fetchLatestRelease(context.Background(), noTag.URL); err == nil {
 		t.Error("expected error for response without tag_name")
 	}
 }
@@ -154,7 +155,7 @@ func TestDownloadToTemp(t *testing.T) {
 	defer srv.Close()
 
 	dir := t.TempDir()
-	tmp, err := downloadToTemp(srv.URL, dir)
+	tmp, err := downloadToTemp(context.Background(), srv.URL, dir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -186,7 +187,7 @@ func TestDownloadToTempBadStatus(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if _, err := downloadToTemp(srv.URL, t.TempDir()); err == nil {
+	if _, err := downloadToTemp(context.Background(), srv.URL, t.TempDir()); err == nil {
 		t.Error("expected error for 500 response")
 	}
 }

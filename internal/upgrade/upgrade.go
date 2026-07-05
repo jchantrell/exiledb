@@ -4,6 +4,7 @@
 package upgrade
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -18,6 +19,14 @@ import (
 
 var releaseAPIURL = "https://api.github.com/repos/jchantrell/exiledb/releases/latest"
 
+// httpClient bounds the connection phases; total transfer time is governed
+// by the caller's context so a multi-MB binary download is not cut short.
+var httpClient = &http.Client{
+	Transport: &http.Transport{
+		ResponseHeaderTimeout: 30 * time.Second,
+	},
+}
+
 // Asset is a downloadable file attached to a GitHub release.
 type Asset struct {
 	Name               string `json:"name"`
@@ -31,13 +40,13 @@ type Release struct {
 }
 
 // Check fetches the latest release from GitHub.
-func Check() (*Release, error) {
-	return fetchLatestRelease(releaseAPIURL)
+func Check(ctx context.Context) (*Release, error) {
+	return fetchLatestRelease(ctx, releaseAPIURL)
 }
 
 // Apply downloads the release asset for the current platform and replaces
 // the running executable with it.
-func Apply(rel *Release) error {
+func Apply(ctx context.Context, rel *Release) error {
 	asset, err := findAsset(rel.Assets, runtime.GOOS, runtime.GOARCH)
 	if err != nil {
 		return err
@@ -48,7 +57,7 @@ func Apply(rel *Release) error {
 		return fmt.Errorf("locating current executable: %w", err)
 	}
 
-	tmp, err := downloadToTemp(asset.BrowserDownloadURL, filepath.Dir(exe))
+	tmp, err := downloadToTemp(ctx, asset.BrowserDownloadURL, filepath.Dir(exe))
 	if err != nil {
 		return fmt.Errorf("downloading release: %w", err)
 	}
@@ -60,15 +69,14 @@ func Apply(rel *Release) error {
 	return nil
 }
 
-func fetchLatestRelease(url string) (*Release, error) {
-	client := &http.Client{Timeout: 30 * time.Second}
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+func fetchLatestRelease(ctx context.Context, url string) (*Release, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 
-	resp, err := client.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -160,8 +168,13 @@ func executablePath() (string, error) {
 
 // downloadToTemp downloads url into a temporary file inside dir so the
 // final rename stays on the same filesystem.
-func downloadToTemp(url, dir string) (string, error) {
-	resp, err := http.Get(url)
+func downloadToTemp(ctx context.Context, url, dir string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", err
+	}
+
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return "", err
 	}
