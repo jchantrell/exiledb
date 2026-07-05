@@ -265,6 +265,15 @@ func (idx *indexImpl) ListFiles() []string {
 	return files
 }
 
+// ListFileEntries returns all file paths with their uncompressed sizes
+func (idx *indexImpl) ListFileEntries() []FileEntry {
+	entries := make([]FileEntry, len(idx.internal.files))
+	for i, file := range idx.internal.files {
+		entries[i] = FileEntry{Path: file.path, Size: file.size}
+	}
+	return entries
+}
+
 // ListFilesWithPrefix returns all files whose path starts with the given prefix (case-insensitive)
 func (idx *indexImpl) ListFilesWithPrefix(prefix string) []string {
 	files := idx.internal.files

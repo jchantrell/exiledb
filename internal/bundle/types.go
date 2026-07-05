@@ -8,8 +8,16 @@ type Index interface {
 	ListBundles() []string
 	// ListFiles returns all file paths in the index
 	ListFiles() []string
+	// ListFileEntries returns all file paths with their uncompressed sizes
+	ListFileEntries() []FileEntry
 	// ListFilesWithPrefix returns all files whose path starts with the given prefix (case-insensitive)
 	ListFilesWithPrefix(prefix string) []string
+}
+
+// FileEntry pairs a file path with its uncompressed size in bytes
+type FileEntry struct {
+	Path string
+	Size uint32
 }
 
 // Bundle represents an opened bundle that can be read from

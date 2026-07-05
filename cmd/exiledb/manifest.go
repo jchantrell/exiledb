@@ -6,6 +6,7 @@ import (
 	"os"
 	"sort"
 
+	"github.com/jchantrell/exiledb/internal/bundle"
 	"github.com/spf13/cobra"
 )
 
@@ -17,11 +18,21 @@ one per line. Output is deterministic (sorted paths), making it suitable
 for committing to version control and diffing between game versions with
 standard tools like diff and comm.
 
+Use --sizes to append each file's uncompressed size in bytes, tab-separated.
 Use --ggpk to read from a Content.ggpk file instead of downloading from CDN.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		sizes, err := cmd.Flags().GetBool("sizes")
+		if err != nil {
+			return err
+		}
+
 		index, err := loadBundleIndex()
 		if err != nil {
 			return err
+		}
+
+		if sizes {
+			return writeLines(sizeLines(index.ListFileEntries()))
 		}
 
 		files := index.ListFiles()
@@ -30,6 +41,19 @@ Use --ggpk to read from a Content.ggpk file instead of downloading from CDN.`,
 
 		return writeLines(files)
 	},
+}
+
+// sizeLines formats entries as "path<TAB>size" lines, sorted and deduped.
+func sizeLines(entries []bundle.FileEntry) []string {
+	lines := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if e.Path == "" {
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("%s\t%d", e.Path, e.Size))
+	}
+	sort.Strings(lines)
+	return dedupeNonEmpty(lines)
 }
 
 // dedupeNonEmpty removes empty and duplicate paths from a sorted slice.
@@ -65,5 +89,6 @@ func writeLines(lines []string) error {
 }
 
 func init() {
+	manifestCmd.Flags().Bool("sizes", false, "append uncompressed size in bytes to each path, tab-separated")
 	rootCmd.AddCommand(manifestCmd)
 }
