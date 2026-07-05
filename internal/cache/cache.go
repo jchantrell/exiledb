@@ -1,66 +1,48 @@
+// Package cache owns the on-disk layout of downloaded artifacts: the bundle
+// index, bundle files, and the community schema, all under one root.
 package cache
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 )
 
-// Cache handles cache directory operations and file validation
-type Cache struct{}
-
-// GetCacheManager creates a new cache manager
-func CacheManager() *Cache {
-	return &Cache{}
+type Cache struct {
+	root string
 }
 
-// GetPatchDir returns the cache directory for a patch version
-func (m *Cache) GetCacheDir() string {
+// New fails rather than falling back to a relative path so cached data never
+// silently lands in the working directory.
+func New() (*Cache, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		return filepath.Join(".", ".exiledb", "cache")
+		return nil, fmt.Errorf("resolving home directory for cache: %w", err)
 	}
-	return filepath.Join(homeDir, ".exiledb", "cache")
+	return &Cache{root: filepath.Join(homeDir, ".exiledb", "cache")}, nil
 }
 
-// GetPatchDir returns the cache directory for a patch version
-func (m *Cache) GetPatchDir(patch string) string {
-	return filepath.Join(m.GetCacheDir(), patch)
+func (c *Cache) Dir() string {
+	return c.root
 }
 
-// EnsureDir creates a directory and all parent directories
-func (m *Cache) EnsureDir(dir string) error {
-	return os.MkdirAll(dir, 0755)
+func (c *Cache) PatchDir(patch string) string {
+	return filepath.Join(c.root, patch)
 }
 
-// FileExists checks if a file exists
-func (m *Cache) FileExists(filename string) bool {
-	_, err := os.Stat(filename)
-	return err == nil
+func (c *Cache) SchemaPath() string {
+	return filepath.Join(c.root, "schema.min.json")
 }
 
-// GetFileSize returns the size of a file, or 0 if it doesn't exist
-func (m *Cache) GetFileSize(filename string) int64 {
-	info, err := os.Stat(filename)
-	if err != nil {
-		return 0
-	}
-	return info.Size()
+func (c *Cache) IndexPath(patch string) string {
+	return filepath.Join(c.PatchDir(patch), "_.index.bin")
 }
 
-// GetSchemaPath returns the path to a bundle file for a patch
-func (m *Cache) GetSchemaPath() string {
-	return filepath.Join(m.GetCacheDir(), "schema.min.json")
-}
-
-// GetIndexPath returns the path to the index file for a patch
-func (m *Cache) GetIndexPath(patch string) string {
-	return filepath.Join(m.GetPatchDir(patch), "_.index.bin")
-}
-
-// GetBundlePath returns the path to a bundle file for a patch
-func (m *Cache) GetBundlePath(patch, bundleName string) string {
+// BundlePath is the single owner of bundle file locations; the CDN writer and
+// the bundle reader both derive paths from it so they can never disagree.
+func (c *Cache) BundlePath(patch, bundleName string) string {
 	safeBundleName := strings.ReplaceAll(bundleName, "/", "_")
 	safeBundleName = strings.ReplaceAll(safeBundleName, " ", "_")
-	return filepath.Join(m.GetPatchDir(patch), safeBundleName)
+	return filepath.Join(c.PatchDir(patch), safeBundleName)
 }

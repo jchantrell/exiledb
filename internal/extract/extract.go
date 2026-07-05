@@ -94,7 +94,10 @@ func openSource(ctx context.Context, cfg *config.Config, opts Options) (*bundle.
 		return manager, nil
 	}
 
-	c := cache.CacheManager()
+	c, err := cache.New()
+	if err != nil {
+		return nil, err
+	}
 
 	gameVersion, err := poe.ParseGameVersion(cfg.Patch)
 	if err != nil {

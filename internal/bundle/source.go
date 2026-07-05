@@ -44,7 +44,7 @@ func NewCacheSource(c *cache.Cache, patch string) *CacheSource {
 }
 
 func (s *CacheSource) ReadIndex() ([]byte, error) {
-	return os.ReadFile(s.cache.GetIndexPath(s.patch))
+	return os.ReadFile(s.cache.IndexPath(s.patch))
 }
 
 func (s *CacheSource) getBundle(bundleName string) (*bundle, error) {
@@ -55,10 +55,10 @@ func (s *CacheSource) getBundle(bundleName string) (*bundle, error) {
 		return cached.bundle, nil
 	}
 
-	bundlePath := s.cache.GetBundlePath(s.patch, bundleName+".bundle.bin")
+	bundlePath := s.cache.BundlePath(s.patch, bundleName+".bundle.bin")
 
 	if _, err := os.Stat(bundlePath); os.IsNotExist(err) {
-		bundlePath = s.cache.GetBundlePath(s.patch, bundleName)
+		bundlePath = s.cache.BundlePath(s.patch, bundleName)
 	}
 
 	if _, err := os.Stat(bundlePath); os.IsNotExist(err) {
@@ -93,9 +93,9 @@ func (s *CacheSource) ReadFileFromBundle(bundleName string, offset, size uint32)
 	}
 
 	if b == nil {
-		bundlePath := s.cache.GetBundlePath(s.patch, bundleName+".bundle.bin")
+		bundlePath := s.cache.BundlePath(s.patch, bundleName+".bundle.bin")
 		if _, err := os.Stat(bundlePath); os.IsNotExist(err) {
-			bundlePath = s.cache.GetBundlePath(s.patch, bundleName)
+			bundlePath = s.cache.BundlePath(s.patch, bundleName)
 		}
 		return os.ReadFile(bundlePath)
 	}
@@ -109,7 +109,7 @@ func (s *CacheSource) ReadFileFromBundle(bundleName string, offset, size uint32)
 }
 
 func (s *CacheSource) IndexCachePath() string {
-	return s.cache.GetIndexPath(s.patch) + ".cache"
+	return s.cache.IndexPath(s.patch) + ".cache"
 }
 
 func (s *CacheSource) Close() error {

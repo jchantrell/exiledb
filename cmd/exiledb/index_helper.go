@@ -30,7 +30,10 @@ func loadBundleIndex(ctx context.Context) (*bundle.Index, error) {
 		}
 		cachePath = source.IndexCachePath()
 	} else {
-		c := cache.CacheManager()
+		c, err := cache.New()
+		if err != nil {
+			return nil, err
+		}
 
 		gameVersion, err := poe.ParseGameVersion(cfg.Patch)
 		if err != nil {
@@ -41,11 +44,11 @@ func loadBundleIndex(ctx context.Context) (*bundle.Index, error) {
 			return nil, fmt.Errorf("downloading index file: %w", err)
 		}
 
-		indexData, err = os.ReadFile(c.GetIndexPath(cfg.Patch))
+		indexData, err = os.ReadFile(c.IndexPath(cfg.Patch))
 		if err != nil {
 			return nil, fmt.Errorf("reading index file: %w", err)
 		}
-		cachePath = c.GetIndexPath(cfg.Patch) + ".cache"
+		cachePath = c.IndexPath(cfg.Patch) + ".cache"
 	}
 
 	index, err := bundle.LoadIndexCached(indexData, cachePath)

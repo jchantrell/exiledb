@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"sort"
 	"sync/atomic"
@@ -35,18 +36,18 @@ func ConstructURL(gameVersion int, patch string, filename string) string {
 }
 
 func DownloadIndex(ctx context.Context, cache *cache.Cache, patch string, gameVersion int, force bool) error {
-	indexPath := cache.GetIndexPath(patch)
+	indexPath := cache.IndexPath(patch)
 
 	// Downloads land atomically (temp file + rename), so existence means a
 	// completed download.
-	if !force && cache.FileExists(indexPath) && cache.GetFileSize(indexPath) > 0 {
+	if info, err := os.Stat(indexPath); !force && err == nil && info.Size() > 0 {
 		return nil
 	}
 
 	indexURL := ConstructURL(gameVersion, patch, "_.index.bin")
 	slog.Info("Fetching bundles from CDN", "url", indexURL, "destination", indexPath)
 
-	if err := cache.EnsureDir(filepath.Dir(indexPath)); err != nil {
+	if err := os.MkdirAll(filepath.Dir(indexPath), 0755); err != nil {
 		return fmt.Errorf("creating cache directory: %w", err)
 	}
 
@@ -66,15 +67,12 @@ func DownloadBundles(ctx context.Context, cache *cache.Cache, patch string, game
 	bundlesToDownload := make([]string, 0, len(bundleNames))
 
 	for _, bundleName := range bundleNames {
-		bundlePath := cache.GetBundlePath(patch, bundleName)
+		bundlePath := cache.BundlePath(patch, bundleName)
 
 		if !force {
-			if cache.FileExists(bundlePath) {
-				size := cache.GetFileSize(bundlePath)
-				if size > 0 {
-					slog.Debug("Bundle already cached", "bundle", bundleName, "size", size)
-					continue
-				}
+			if info, err := os.Stat(bundlePath); err == nil && info.Size() > 0 {
+				slog.Debug("Bundle already cached", "bundle", bundleName, "size", info.Size())
+				continue
 			}
 		}
 
@@ -95,9 +93,9 @@ func DownloadBundles(ctx context.Context, cache *cache.Cache, patch string, game
 	g.SetLimit(downloadConcurrency)
 	for _, bundleName := range bundlesToDownload {
 		g.Go(func() error {
-			bundlePath := cache.GetBundlePath(patch, bundleName)
+			bundlePath := cache.BundlePath(patch, bundleName)
 
-			if err := cache.EnsureDir(filepath.Dir(bundlePath)); err != nil {
+			if err := os.MkdirAll(filepath.Dir(bundlePath), 0755); err != nil {
 				return fmt.Errorf("creating cache directory for bundle %s: %w", bundleName, err)
 			}
 

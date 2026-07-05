@@ -19,11 +19,13 @@ type SchemaManager struct {
 
 // NewSchemaManager downloads the latest community schema and loads it.
 func NewSchemaManager() (*SchemaManager, error) {
-	cacheManager := cache.CacheManager()
-	schemaPath := cacheManager.GetSchemaPath()
+	cacheManager, err := cache.New()
+	if err != nil {
+		return nil, err
+	}
+	schemaPath := cacheManager.SchemaPath()
 
-	// Ensure cache directory exists
-	if err := cacheManager.EnsureDir(cacheManager.GetCacheDir()); err != nil {
+	if err := os.MkdirAll(cacheManager.Dir(), 0755); err != nil {
 		return nil, fmt.Errorf("creating schema cache directory: %w", err)
 	}
 
