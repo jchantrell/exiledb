@@ -27,12 +27,14 @@ func calculateDXTColors(c0 uint16, c1 uint16, ignoreAlpha bool) (r [4]uint8, g [
 		r[3] = avgU8(r[0], r[1], r[1])
 		g[3] = avgU8(g[0], g[1], g[1])
 		b[3] = avgU8(b[0], b[1], b[1])
+
+		a = [4]uint8{255, 255, 255, 255}
 	} else {
 		r[2] = avgU8(r[0], r[1])
 		g[2] = avgU8(g[0], g[1])
 		b[2] = avgU8(b[0], b[1])
 
-		a[3] = 255
+		a = [4]uint8{255, 255, 255, 0}
 	}
 	return
 }
@@ -49,13 +51,11 @@ func decodeDXT1Block(block []byte, texels *[16][4]uint8) error {
 	c1 := binary.LittleEndian.Uint16(block[2:4])
 	bits := binary.LittleEndian.Uint32(block[4:8])
 
-	// calculateDXTColors yields transparency (255 in cA for the transparent
-	// index), so alpha is its inverse.
 	cR, cG, cB, cA := calculateDXTColors(c0, c1, false)
 
 	for t := 0; t < 16; t++ {
 		code := (bits >> (t * 2)) & 0x03
-		texels[t] = [4]uint8{cR[code], cG[code], cB[code], 255 - cA[code]}
+		texels[t] = [4]uint8{cR[code], cG[code], cB[code], cA[code]}
 	}
 	return nil
 }
