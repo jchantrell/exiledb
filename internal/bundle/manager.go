@@ -24,7 +24,7 @@ type cachedBundle struct {
 	closer io.Closer
 }
 
-func NewBundleManager(source BundleSource) (*BundleManager, error) {
+func LoadIndex(source BundleSource) (*Index, error) {
 	indexData, err := source.ReadIndex()
 	if err != nil {
 		return nil, fmt.Errorf("reading index: %w", err)
@@ -33,6 +33,14 @@ func NewBundleManager(source BundleSource) (*BundleManager, error) {
 	index, err := LoadIndexCached(indexData, source.IndexCachePath())
 	if err != nil {
 		return nil, fmt.Errorf("loading bundle index: %w", err)
+	}
+	return index, nil
+}
+
+func NewBundleManager(source BundleSource) (*BundleManager, error) {
+	index, err := LoadIndex(source)
+	if err != nil {
+		return nil, err
 	}
 
 	slog.Debug("Bundle index loaded", "file_count", len(index.files))

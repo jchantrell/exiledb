@@ -129,16 +129,7 @@ func LoadIndex(ctx context.Context, cfg *config.Config) (*bundle.Index, error) {
 	}
 	defer src.bundleSource.Close()
 
-	data, err := src.bundleSource.ReadIndex()
-	if err != nil {
-		return nil, fmt.Errorf("reading index: %w", err)
-	}
-
-	index, err := bundle.LoadIndexCached(data, src.bundleSource.IndexCachePath())
-	if err != nil {
-		return nil, fmt.Errorf("loading index: %w", err)
-	}
-	return index, nil
+	return bundle.LoadIndex(src.bundleSource)
 }
 
 func openSource(ctx context.Context, cfg *config.Config, opts Options) (*bundle.BundleManager, error) {
