@@ -26,7 +26,7 @@ Use --ggpk to read from a Content.ggpk file instead of downloading from CDN.`,
 			return err
 		}
 
-		index, err := loadBundleIndex()
+		index, err := loadBundleIndex(cmd.Context())
 		if err != nil {
 			return err
 		}

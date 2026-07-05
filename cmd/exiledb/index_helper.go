@@ -1,18 +1,19 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 
 	"github.com/jchantrell/exiledb/internal/bundle"
 	"github.com/jchantrell/exiledb/internal/cache"
 	"github.com/jchantrell/exiledb/internal/cdn"
-	"github.com/jchantrell/exiledb/internal/utils"
+	"github.com/jchantrell/exiledb/internal/poe"
 )
 
 // loadBundleIndex loads the bundle index from a GGPK file if configured,
 // otherwise downloads it from the CDN for the configured patch.
-func loadBundleIndex() (bundle.Index, error) {
+func loadBundleIndex(ctx context.Context) (*bundle.Index, error) {
 	var indexData []byte
 	var cachePath string
 
@@ -31,12 +32,12 @@ func loadBundleIndex() (bundle.Index, error) {
 	} else {
 		c := cache.CacheManager()
 
-		gameVersion, err := utils.ParseGameVersion(cfg.Patch)
+		gameVersion, err := poe.ParseGameVersion(cfg.Patch)
 		if err != nil {
 			return nil, fmt.Errorf("parsing game version: %w", err)
 		}
 
-		if err := cdn.DownloadIndex(c, cfg.Patch, gameVersion, false); err != nil {
+		if err := cdn.DownloadIndex(ctx, c, cfg.Patch, gameVersion, false); err != nil {
 			return nil, fmt.Errorf("downloading index file: %w", err)
 		}
 
