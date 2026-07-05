@@ -247,9 +247,12 @@ func (e *Exporter) exportRegularFiles(ctx context.Context, regularFiles []string
 	g.SetLimit(runtime.GOMAXPROCS(0))
 
 	for _, filePath := range regularFiles {
+		lower := strings.ToLower(filePath)
+		isDDS := strings.HasSuffix(lower, ".dds")
+
 		var outputPath string
-		if strings.HasSuffix(filePath, ".dds") {
-			outputPath = filepath.Join(e.outputDir, strings.TrimSuffix(sanitizePath(filePath), ".dds")+".png")
+		if isDDS {
+			outputPath = filepath.Join(e.outputDir, sanitizePath(filePath[:len(filePath)-len(".dds")])+".png")
 		} else {
 			outputPath = filepath.Join(e.outputDir, sanitizePath(filePath))
 		}
@@ -274,7 +277,7 @@ func (e *Exporter) exportRegularFiles(ctx context.Context, regularFiles []string
 				return nil
 			}
 
-			if strings.HasSuffix(filePath, ".dds") {
+			if isDDS {
 				if err := ConvertDDSToPNG(fileData, nil, outputPath); err != nil {
 					slog.Warn("Skipping DDS conversion", "path", filePath, "error", err)
 					failed.Add(1)
@@ -286,7 +289,6 @@ func (e *Exporter) exportRegularFiles(ctx context.Context, regularFiles []string
 			}
 
 			data := fileData
-			lower := strings.ToLower(filePath)
 			if strings.HasSuffix(lower, ".txt") || strings.HasSuffix(lower, ".text") {
 				text, err := DecodeUTF16LE(data)
 				if err != nil {
