@@ -32,7 +32,7 @@ Use --ggpk to extract directly from a Content.ggpk file instead of downloading f
 
 		stats, err := extract.Run(cmd.Context(), cfg, extract.Options{
 			ForceDownload: forceDownload,
-			Progress:      progress,
+			Progress:      progress.Phase,
 		})
 		if err != nil {
 			return err

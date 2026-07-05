@@ -21,7 +21,6 @@ import (
 	"github.com/jchantrell/exiledb/internal/database"
 	"github.com/jchantrell/exiledb/internal/export"
 	"github.com/jchantrell/exiledb/internal/poe"
-	"github.com/jchantrell/exiledb/internal/ui"
 )
 
 // Options carries per-invocation settings that are not part of the config.
@@ -29,8 +28,16 @@ type Options struct {
 	// ForceDownload re-downloads bundles even when cached.
 	ForceDownload bool
 
-	// Progress renders phase progress bars; must not be nil.
-	Progress *ui.Progress
+	// Progress returns a reporter for one phase of work; nil disables
+	// progress reporting entirely.
+	Progress func() func(done, total int, label string)
+}
+
+func (o Options) phase() func(done, total int, label string) {
+	if o.Progress == nil {
+		return func(int, int, string) {}
+	}
+	return o.Progress()
 }
 
 // Run executes the extraction pipeline. A nil Stats with nil error means
@@ -64,14 +71,14 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) (*Stats, error) 
 	stats.processingStart = time.Now()
 
 	if len(cfg.Tables) > 0 {
-		if err := insertTables(ctx, cfg, db, manager, opts.Progress, stats); err != nil {
+		if err := insertTables(ctx, cfg, db, manager, opts, stats); err != nil {
 			return nil, err
 		}
 		reportForeignKeys(ctx, db)
 	}
 
 	if len(cfg.Files) > 0 {
-		exportFiles(ctx, cfg, manager, opts.Progress, stats)
+		exportFiles(ctx, cfg, manager, opts, stats)
 	}
 
 	stats.EndTime = time.Now()
@@ -121,7 +128,7 @@ func openSource(ctx context.Context, cfg *config.Config, opts Options) (*bundle.
 		return nil, nil
 	}
 
-	if err := cdn.DownloadBundles(ctx, c, cfg.Patch, gameVersion, requiredBundles, opts.ForceDownload, opts.Progress.Phase()); err != nil {
+	if err := cdn.DownloadBundles(ctx, c, cfg.Patch, gameVersion, requiredBundles, opts.ForceDownload, opts.phase()); err != nil {
 		manager.Close()
 		return nil, fmt.Errorf("downloading bundles: %w", err)
 	}
@@ -134,7 +141,7 @@ func openSource(ctx context.Context, cfg *config.Config, opts Options) (*bundle.
 		slog.Warn("Failed to resolve sprite sheets", "error", err)
 	} else if len(sheets) > 0 {
 		sheetBundles := discoverRequiredBundles(manager.Index(), cfg.Patch, nil, nil, sheets)
-		if err := cdn.DownloadBundles(ctx, c, cfg.Patch, gameVersion, sheetBundles, opts.ForceDownload, opts.Progress.Phase()); err != nil {
+		if err := cdn.DownloadBundles(ctx, c, cfg.Patch, gameVersion, sheetBundles, opts.ForceDownload, opts.phase()); err != nil {
 			manager.Close()
 			return nil, fmt.Errorf("downloading sprite sheet bundles: %w", err)
 		}
@@ -169,7 +176,7 @@ func loadCommunitySchema(ctx context.Context) (*dat.CommunitySchema, error) {
 
 // insertTables creates schemas for the requested tables and loads every
 // requested language of each table into the database.
-func insertTables(ctx context.Context, cfg *config.Config, db *database.Database, manager *bundle.BundleManager, progress *ui.Progress, stats *Stats) error {
+func insertTables(ctx context.Context, cfg *config.Config, db *database.Database, manager *bundle.BundleManager, opts Options, stats *Stats) error {
 	schema, err := loadCommunitySchema(ctx)
 	if err != nil {
 		return fmt.Errorf("loading community schema: %w", err)
@@ -194,14 +201,14 @@ func insertTables(ctx context.Context, cfg *config.Config, db *database.Database
 	slog.Info("Creating database schemas", "count", totalTables)
 
 	ddlManager := database.NewDDLManager(db)
-	if err := ddlManager.CreateSchemas(ctx, datSchemas, progress.Phase()); err != nil {
+	if err := ddlManager.CreateSchemas(ctx, datSchemas, opts.phase()); err != nil {
 		return fmt.Errorf("creating schemas: %w", err)
 	}
 
 	slog.Info("Inserting dat files", "count", len(datSchemas))
 	bulkInserter := database.NewBulkInserter(db, nil)
 
-	insertProgress := progress.Phase()
+	insertProgress := opts.phase()
 	for i, datSchema := range datSchemas {
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("extraction canceled: %w", err)
@@ -286,13 +293,13 @@ func reportForeignKeys(ctx context.Context, db *database.Database) {
 // exportFiles writes the requested files to ./files. Export failures are
 // reported but do not abort the run; the stats reflect what was actually
 // exported.
-func exportFiles(ctx context.Context, cfg *config.Config, manager *bundle.BundleManager, progress *ui.Progress, stats *Stats) {
+func exportFiles(ctx context.Context, cfg *config.Config, manager *bundle.BundleManager, opts Options, stats *Stats) {
 	expandedFiles := manager.SortByBundle(manager.ExpandFilePaths(cfg.Files))
 	slog.Info("Exporting files", "requested", len(cfg.Files), "resolved", len(expandedFiles))
 
 	exporter := export.NewExporter(manager, filepath.Join(".", "files"))
 
-	exported, err := exporter.ExportFiles(ctx, expandedFiles, progress.Phase())
+	exported, err := exporter.ExportFiles(ctx, expandedFiles, opts.phase())
 	if err != nil {
 		slog.Error("Failed to export files", "error", err)
 	}
