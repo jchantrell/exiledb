@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"io"
 	"log/slog"
 	"sort"
 	"strings"
@@ -30,37 +29,16 @@ type bundlePathrep struct {
 	recursiveSize uint32
 }
 
-func loadBundleIndex(indexFile io.ReaderAt) (*Index, error) {
-	indexBundle, err := OpenBundle(indexFile)
+func loadBundleIndex(data []byte) (*Index, error) {
+	decompressed, err := Decompress(data)
 	if err != nil {
-		return loadBundleIndexFromRawData(indexFile)
+		slog.Debug("Index decompress failed, treating as raw index", "error", err)
+		return loadBundleIndexFromRawData(data)
 	}
-
-	indexData := make([]byte, indexBundle.Size())
-	if _, err := indexBundle.ReadAt(indexData, 0); err != nil {
-		return nil, fmt.Errorf("unable to read index bundle: %w", err)
-	}
-
-	return loadBundleIndexFromRawData(bytes.NewReader(indexData))
+	return loadBundleIndexFromRawData(decompressed)
 }
 
-func loadBundleIndexFromRawData(indexFile io.ReaderAt) (*Index, error) {
-	var indexData []byte
-	var offset int64 = 0
-	buf := make([]byte, 64*1024) // 64KB chunks
-
-	for {
-		n, err := indexFile.ReadAt(buf, offset)
-		if err != nil && err != io.EOF {
-			return nil, fmt.Errorf("unable to read index data: %w", err)
-		}
-		indexData = append(indexData, buf[:n]...)
-		if err == io.EOF || n == 0 {
-			break
-		}
-		offset += int64(n)
-	}
-
+func loadBundleIndexFromRawData(indexData []byte) (*Index, error) {
 	cur := &byteCursor{data: indexData}
 
 	bundleCount, err := cur.uint32()

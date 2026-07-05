@@ -2,7 +2,6 @@ package bundle
 
 import (
 	"bufio"
-	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -30,7 +29,7 @@ func LoadIndexCached(compressedData []byte, cachePath string) (*Index, error) {
 		slog.Debug("Index cache miss", "path", cachePath, "reason", err)
 	}
 
-	idx, err := loadBundleIndex(bytes.NewReader(compressedData))
+	idx, err := loadBundleIndex(compressedData)
 	if err != nil {
 		return nil, err
 	}
