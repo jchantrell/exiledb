@@ -1,32 +1,18 @@
-package bundle
+package extract
 
 import (
 	"log/slog"
 	"strings"
 
+	"github.com/jchantrell/exiledb/internal/bundle"
 	"github.com/jchantrell/exiledb/internal/export"
 	"github.com/jchantrell/exiledb/internal/poe"
 )
 
-// DiscoverRequiredBundles determines which bundles must be downloaded to
+// discoverRequiredBundles determines which bundles must be downloaded to
 // satisfy the requested tables, languages, and files.
-func DiscoverRequiredBundles(index *Index, patch string, languages []string, tables []string, files []string) []string {
-	bundleSet := getBundleSet(index, patch, tables, languages, files)
-
-	var candidatePaths []string
-	for bundle := range bundleSet {
-		candidatePaths = append(candidatePaths, bundle)
-	}
-
-	return candidatePaths
-}
-
-func getBundleSet(index *Index, patch string, tables, languages []string, files []string) map[string]bool {
+func discoverRequiredBundles(index *bundle.Index, patch string, languages []string, tables []string, files []string) []string {
 	bundleSet := make(map[string]bool)
-	bundleSet["_.index.bin"] = true
-
-	allFiles := index.ListFiles()
-	datFileCount := 0
 
 	if len(tables) > 0 {
 		for _, table := range tables {
@@ -47,24 +33,20 @@ func getBundleSet(index *Index, patch string, tables, languages []string, files 
 				}
 			}
 		}
-
 	} else {
-		for _, filePath := range allFiles {
+		for _, filePath := range index.ListFiles() {
 			if strings.HasPrefix(filePath, "data/") && strings.HasSuffix(filePath, poe.DatExtension) {
 				if loc, err := index.GetFileInfo(filePath); err == nil {
 					bundleSet[loc.BundleName] = true
-					datFileCount++
 				}
 			}
 		}
 	}
 
-	// Add bundles for requested files (expanding directory prefixes)
 	if len(files) > 0 {
-		expandedFiles := index.ExpandFilePaths(files)
 		needsSpriteIndices := false
 
-		for _, filePath := range expandedFiles {
+		for _, filePath := range index.ExpandFilePaths(files) {
 			if loc, err := index.GetFileInfo(filePath); err == nil {
 				bundleSet[loc.BundleName] = true
 			} else {
@@ -80,7 +62,6 @@ func getBundleSet(index *Index, patch string, tables, languages []string, files 
 			for _, spriteList := range export.SpriteLists {
 				if loc, err := index.GetFileInfo(spriteList.Path); err == nil {
 					bundleSet[loc.BundleName] = true
-					slog.Debug("Adding sprite index file", "path", spriteList.Path, "bundle", loc.BundleName)
 				} else {
 					slog.Warn("Sprite index file not found", "path", spriteList.Path, "error", err)
 				}
@@ -88,5 +69,9 @@ func getBundleSet(index *Index, patch string, tables, languages []string, files 
 		}
 	}
 
-	return bundleSet
+	bundles := make([]string, 0, len(bundleSet))
+	for b := range bundleSet {
+		bundles = append(bundles, b)
+	}
+	return bundles
 }

@@ -113,7 +113,7 @@ func openSource(ctx context.Context, cfg *config.Config, opts Options) (*bundle.
 		return nil, fmt.Errorf("creating bundle manager: %w", err)
 	}
 
-	requiredBundles := bundle.DiscoverRequiredBundles(manager.Index(), cfg.Patch, cfg.Languages, cfg.Tables, cfg.Files)
+	requiredBundles := discoverRequiredBundles(manager.Index(), cfg.Patch, cfg.Languages, cfg.Tables, cfg.Files)
 	if len(requiredBundles) == 0 {
 		slog.Info("No bundles required for current configuration")
 		manager.Close()
@@ -132,7 +132,7 @@ func openSource(ctx context.Context, cfg *config.Config, opts Options) (*bundle.
 	if err != nil {
 		slog.Warn("Failed to resolve sprite sheets", "error", err)
 	} else if len(sheets) > 0 {
-		sheetBundles := bundle.DiscoverRequiredBundles(manager.Index(), cfg.Patch, nil, nil, sheets)
+		sheetBundles := discoverRequiredBundles(manager.Index(), cfg.Patch, nil, nil, sheets)
 		if err := cdn.DownloadBundles(ctx, c, cfg.Patch, gameVersion, sheetBundles, opts.ForceDownload, opts.Progress.Phase()); err != nil {
 			manager.Close()
 			return nil, fmt.Errorf("downloading sprite sheet bundles: %w", err)

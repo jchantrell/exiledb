@@ -99,13 +99,8 @@ func DownloadBundles(ctx context.Context, cache *cache.Cache, patch string, game
 				return fmt.Errorf("creating cache directory for bundle %s: %w", bundleName, err)
 			}
 
-			cdnFileName := bundleName + ".bundle.bin"
-			if bundleName == "_.index.bin" {
-				cdnFileName = bundleName
-			}
-
 			slog.Debug("Downloading bundle", "bundle", bundleName)
-			if err := Download(ctx, ConstructURL(gameVersion, patch, cdnFileName), bundlePath); err != nil {
+			if err := Download(ctx, ConstructURL(gameVersion, patch, bundleName+".bundle.bin"), bundlePath); err != nil {
 				return fmt.Errorf("downloading bundle %s: %w", bundleName, err)
 			}
 
