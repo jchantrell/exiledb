@@ -27,7 +27,7 @@ func colorModelStride(m color.Model) (int, error) {
 	}
 }
 
-func DecompressUncompressed(buf []uint8, r io.Reader, width, height int, info Info) ([]uint8, error) {
+func DecompressUncompressed(buf []uint8, r io.Reader, width, height int, info Info) error {
 	bitMasks := [4]uint32{info.Header.PixelFormat.RBitMask, info.Header.PixelFormat.GBitMask, info.Header.PixelFormat.BBitMask, info.Header.PixelFormat.ABitMask}
 	var bitMaskTZs [4]int
 	for i := range bitMasks {
@@ -39,16 +39,16 @@ func DecompressUncompressed(buf []uint8, r io.Reader, width, height int, info In
 	}
 
 	if info.Header.PixelFormat.RGBBitCount%8 != 0 {
-		return nil, fmt.Errorf("invalid RGB bit count: %v (must be multiple of 8)", info.Header.PixelFormat.RGBBitCount)
+		return fmt.Errorf("invalid RGB bit count: %v (must be multiple of 8)", info.Header.PixelFormat.RGBBitCount)
 	}
 	byteCount := info.Header.PixelFormat.RGBBitCount / 8
 	if byteCount > 4 {
-		return nil, fmt.Errorf("invalid RGB bit count: %v (must be at most 32)", info.Header.PixelFormat.RGBBitCount)
+		return fmt.Errorf("invalid RGB bit count: %v (must be at most 32)", info.Header.PixelFormat.RGBBitCount)
 	}
 
 	stride, err := colorModelStride(info.ColorModel)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	pixelEnd := 0
@@ -62,14 +62,14 @@ func DecompressUncompressed(buf []uint8, r io.Reader, width, height int, info In
 		case bitMaskBits[i] == 16:
 			end = 2*i + 2
 		default:
-			return nil, fmt.Errorf("unsupported number of bits: %v", bitMaskBits[i])
+			return fmt.Errorf("unsupported number of bits: %v", bitMaskBits[i])
 		}
 		if end > pixelEnd {
 			pixelEnd = end
 		}
 	}
 	if pixelEnd > stride {
-		return nil, fmt.Errorf("pixel format masks write up to byte %d per pixel, color model stride is %d", pixelEnd, stride)
+		return fmt.Errorf("pixel format masks write up to byte %d per pixel, color model stride is %d", pixelEnd, stride)
 	}
 
 	fillAlpha := info.Header.PixelFormat.Flags&PixelFormatFlagAlphaPixels == 0
@@ -88,7 +88,7 @@ func DecompressUncompressed(buf []uint8, r io.Reader, width, height int, info In
 
 			var data [4]uint8
 			if _, err := io.ReadFull(r, data[:byteCount]); err != nil {
-				return nil, err
+				return err
 			}
 			dataU32 := binary.LittleEndian.Uint32(data[:])
 
@@ -124,7 +124,7 @@ func DecompressUncompressed(buf []uint8, r io.Reader, width, height int, info In
 			}
 		}
 	}
-	return buf, nil
+	return nil
 }
 
 type dxgiUncompressedFormat struct {
@@ -178,29 +178,29 @@ func translateBGRARow(dst, src []byte) {
 	}
 }
 
-func DecompressUncompressedDXT10(buf []uint8, r io.Reader, width, height int, info Info) ([]uint8, error) {
+func DecompressUncompressedDXT10(buf []uint8, r io.Reader, width, height int, info Info) error {
 	if info.DXT10Header == nil {
-		return nil, errors.New("uncompressed DXT 10: expected DXT10 header")
+		return errors.New("uncompressed DXT 10: expected DXT10 header")
 	}
 
 	format, ok := dxgiUncompressedFormats[info.DXT10Header.DXGIFormat]
 	if !ok {
-		return nil, fmt.Errorf("uncompressed image: unsupported DXGI format: %v", info.DXT10Header.DXGIFormat)
+		return fmt.Errorf("uncompressed image: unsupported DXGI format: %v", info.DXT10Header.DXGIFormat)
 	}
 	if info.ColorModel != format.colorModel {
-		return nil, fmt.Errorf("unexpected color model for %v", info.DXT10Header.DXGIFormat)
+		return fmt.Errorf("unexpected color model for %v", info.DXT10Header.DXGIFormat)
 	}
 
 	stride, err := colorModelStride(info.ColorModel)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	row := make([]byte, width*format.srcPixelBytes)
 	for y := 0; y < height; y++ {
 		if _, err := io.ReadFull(r, row); err != nil {
-			return nil, err
+			return err
 		}
 		format.translateRow(buf[stride*y*width:], row)
 	}
-	return buf, nil
+	return nil
 }

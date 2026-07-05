@@ -206,7 +206,7 @@ func Decode(data []byte) (image.Image, error) {
 		return nil, errors.New("invalid color model passed by info structure")
 	}
 
-	if _, err = info.Decompress(buf, r, width, height, info); err != nil {
+	if err = info.Decompress(buf, r, width, height, info); err != nil {
 		return nil, fmt.Errorf("decompressing image: %w", err)
 	}
 

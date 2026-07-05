@@ -327,11 +327,11 @@ func isBC7PixelAnchorIndex(subsetIndex, numSubsets uint8, pixelIndex int, partit
 	return int(bc7AnchorIndexTable[tableIndex][partitionID]) == pixelIndex
 }
 
-func DecompressBC7(buf []uint8, r io.Reader, width, height int, info Info) ([]uint8, error) {
+func DecompressBC7(buf []uint8, r io.Reader, width, height int, info Info) error {
 	if info.ColorModel != color.NRGBAModel {
-		return nil, errors.New("BC7 compression expects NRGBA color model")
+		return errors.New("BC7 compression expects NRGBA color model")
 	}
-	return nil, decodeBlocks(buf, r, width, height, 16, 4, decodeBC7Block)
+	return decodeBlocks(buf, r, width, height, 16, 4, decodeBC7Block)
 }
 
 func decodeBC7Block(block []byte, texels *[16][4]uint8) error {
