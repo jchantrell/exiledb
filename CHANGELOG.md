@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.6.0](https://github.com/jchantrell/exiledb/compare/v1.5.0...v1.6.0) (2026-07-05)
+
+
+### Features
+
+* add upgrade command for self-updating from GitHub releases ([ee0de48](https://github.com/jchantrell/exiledb/commit/ee0de488f60adf01b0a85e09bbb787580a77a382))
+* add version command with build-time version embedding ([9b8c978](https://github.com/jchantrell/exiledb/commit/9b8c978778ba2b86c1d50eb02cdf95dbc1db4864))
+
+
+### Bug Fixes
+
+* **bundle,ggpk:** reject corrupt input, collapse to one Index type ([a99b951](https://github.com/jchantrell/exiledb/commit/a99b95169baff5ab8d64ab661b4062bd3c64e573))
+* **cdn:** atomic parallel bundle downloads ([eddb259](https://github.com/jchantrell/exiledb/commit/eddb259e96b59beaadf4b1cde73115c32ac90a6f))
+* **database:** apply SQLite pragmas, document-only foreign keys, per-table insert plan ([5803256](https://github.com/jchantrell/exiledb/commit/5803256369c3dbb57442ac915cb40b3fdd6a797a))
+* **dat:** harden parser against malformed input, add FieldType codec registry ([d1b30dd](https://github.com/jchantrell/exiledb/commit/d1b30dddd42960ab70e31f1f3d0c128a6bedcae3))
+* **dds:** validate decode inputs, split into shared block driver per codec ([c5f73a4](https://github.com/jchantrell/exiledb/commit/c5f73a4f0f36204f10180d27643a148428706e10))
+* **export:** correct sprite crop geometry and sheet discovery, honest export accounting ([435c611](https://github.com/jchantrell/exiledb/commit/435c6113a216a167e0aaef511a5eaf460c2ab20a))
+
 ## [1.5.0](https://github.com/jchantrell/exiledb/compare/v1.4.0...v1.5.0) (2026-07-05)
 
 
