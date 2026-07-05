@@ -206,6 +206,25 @@ func (d *decoder) parseRow(index int, rowData []byte, schema *TableSchema) Parse
 		fieldData := rowData[offset : offset+size]
 		offset += size
 
+		if column.Interval && !column.Array {
+			minName, maxName := IntervalFieldNames(&column, i)
+			half := column.Type.Size()
+			minValue, err := d.readScalarField(fieldData[:half], &column)
+			if err != nil {
+				slog.Debug("Could not read field", "name", minName, "fieldStart", offset-size)
+				break
+			}
+			maxValue, err := d.readScalarField(fieldData[half:], &column)
+			if err != nil {
+				slog.Debug("Could not read field", "name", maxName, "fieldStart", offset-size)
+				break
+			}
+			fields[minName] = minValue
+			fields[maxName] = maxValue
+			fieldsParsed++
+			continue
+		}
+
 		value, err := d.fieldValue(fieldData, &column)
 		if err != nil {
 			slog.Debug("Could not read field", "name", name, "fieldStart", offset-size)
@@ -230,6 +249,13 @@ func FieldName(column *TableColumn, index int) string {
 		return "Unknown" + strconv.Itoa(index)
 	}
 	return *column.Name
+}
+
+// An interval column occupies twice its scalar width and decodes to a
+// (min, max) range stored as two fields.
+func IntervalFieldNames(column *TableColumn, index int) (string, string) {
+	name := FieldName(column, index)
+	return name + "Min", name + "Max"
 }
 
 func (d *decoder) fieldValue(data []byte, column *TableColumn) (interface{}, error) {

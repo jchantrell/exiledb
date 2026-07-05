@@ -103,6 +103,30 @@ func newTablePlan(schema *dat.TableSchema) (*tablePlan, error) {
 			continue
 		}
 
+		if column.Interval && !column.Array {
+			if column.References != nil {
+				return nil, fmt.Errorf("table %s column %d (%s): interval columns cannot be foreign keys", schema.Name, i, sqlName)
+			}
+			sqlType, err := mapDATTypeToSQL(column.Type)
+			if err != nil {
+				return nil, fmt.Errorf("table %s column %d (%s): %w", schema.Name, i, sqlName, err)
+			}
+			minField, maxField := dat.IntervalFieldNames(column, i)
+			for _, f := range []string{minField, maxField} {
+				intervalName := poe.ToSnakeCase(f)
+				if err := validateIdentifier(intervalName); err != nil {
+					return nil, fmt.Errorf("table %s column %d: %w", schema.Name, i, err)
+				}
+				plan.columns = append(plan.columns, planColumn{
+					sqlName: intervalName,
+					field:   f,
+					sqlType: sqlType,
+					column:  column,
+				})
+			}
+			continue
+		}
+
 		col := planColumn{
 			sqlName: sqlName,
 			field:   field,
