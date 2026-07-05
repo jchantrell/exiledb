@@ -7,3 +7,6 @@
 /exile.db
 *.idx
 /*.txt
+/regression/
+.regression-bin/
+.regression-out/
