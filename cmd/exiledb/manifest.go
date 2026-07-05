@@ -7,6 +7,7 @@ import (
 	"sort"
 
 	"github.com/jchantrell/exiledb/internal/bundle"
+	"github.com/jchantrell/exiledb/internal/extract"
 	"github.com/spf13/cobra"
 )
 
@@ -26,7 +27,7 @@ Use --ggpk to read from a Content.ggpk file instead of downloading from CDN.`,
 			return err
 		}
 
-		index, err := loadBundleIndex(cmd.Context())
+		index, err := extract.LoadIndex(cmd.Context(), cfg)
 		if err != nil {
 			return err
 		}

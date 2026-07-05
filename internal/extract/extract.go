@@ -85,21 +85,24 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) (*Stats, error) 
 	return stats, nil
 }
 
-// openSource resolves the bundle manager for the configured source: a local
-// GGPK archive, or the CDN cache after downloading whatever the requested
-// tables/files need. Returns (nil, nil) when no bundles are required.
-func openSource(ctx context.Context, cfg *config.Config, opts Options) (*bundle.BundleManager, error) {
+// source is a resolved bundle source plus the CDN context needed to download
+// bundles into it; cache is nil for GGPK sources, which already hold all data.
+type source struct {
+	bundleSource bundle.BundleSource
+	cache        *cache.Cache
+	gameVersion  int
+}
+
+// resolveSource opens the configured bundle source: a local GGPK archive, or
+// the CDN cache with a freshly downloaded index.
+func resolveSource(ctx context.Context, cfg *config.Config, force bool) (*source, error) {
 	if cfg.GgpkPath != "" {
 		slog.Info("Using GGPK file", "path", cfg.GgpkPath)
-		source, err := bundle.NewGgpkSource(cfg.GgpkPath)
+		s, err := bundle.NewGgpkSource(cfg.GgpkPath)
 		if err != nil {
 			return nil, fmt.Errorf("opening GGPK: %w", err)
 		}
-		manager, err := bundle.NewBundleManager(source)
-		if err != nil {
-			return nil, fmt.Errorf("creating bundle manager from GGPK: %w", err)
-		}
-		return manager, nil
+		return &source{bundleSource: s}, nil
 	}
 
 	c, err := cache.New()
@@ -112,14 +115,57 @@ func openSource(ctx context.Context, cfg *config.Config, opts Options) (*bundle.
 		return nil, fmt.Errorf("parsing game version: %w", err)
 	}
 
-	if err := cdn.DownloadIndex(ctx, c, cfg.Patch, gameVersion, opts.ForceDownload); err != nil {
+	if err := cdn.DownloadIndex(ctx, c, cfg.Patch, gameVersion, force); err != nil {
 		return nil, fmt.Errorf("downloading index file: %w", err)
 	}
 
-	manager, err := bundle.NewBundleManager(bundle.NewCacheSource(c, cfg.Patch))
+	return &source{
+		bundleSource: bundle.NewCacheSource(c, cfg.Patch),
+		cache:        c,
+		gameVersion:  gameVersion,
+	}, nil
+}
+
+// LoadIndex loads the bundle index for the configured source without
+// downloading any bundles. Used by commands that only inspect the index.
+func LoadIndex(ctx context.Context, cfg *config.Config) (*bundle.Index, error) {
+	src, err := resolveSource(ctx, cfg, false)
 	if err != nil {
+		return nil, err
+	}
+	defer src.bundleSource.Close()
+
+	data, err := src.bundleSource.ReadIndex()
+	if err != nil {
+		return nil, fmt.Errorf("reading index: %w", err)
+	}
+
+	index, err := bundle.LoadIndexCached(data, src.bundleSource.IndexCachePath())
+	if err != nil {
+		return nil, fmt.Errorf("loading index: %w", err)
+	}
+	return index, nil
+}
+
+// openSource resolves the bundle manager for the configured source,
+// downloading whatever bundles the requested tables/files need when reading
+// from the CDN. Returns (nil, nil) when no bundles are required.
+func openSource(ctx context.Context, cfg *config.Config, opts Options) (*bundle.BundleManager, error) {
+	src, err := resolveSource(ctx, cfg, opts.ForceDownload)
+	if err != nil {
+		return nil, err
+	}
+
+	manager, err := bundle.NewBundleManager(src.bundleSource)
+	if err != nil {
+		src.bundleSource.Close()
 		return nil, fmt.Errorf("creating bundle manager: %w", err)
 	}
+
+	if src.cache == nil {
+		return manager, nil
+	}
+	c, gameVersion := src.cache, src.gameVersion
 
 	requiredBundles := discoverRequiredBundles(manager.Index(), cfg.Patch, cfg.Languages, cfg.Tables, cfg.Files)
 	if len(requiredBundles) == 0 {

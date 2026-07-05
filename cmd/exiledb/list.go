@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/jchantrell/exiledb/internal/extract"
 	"github.com/spf13/cobra"
 )
 
@@ -18,7 +19,7 @@ Only downloads the index file — no bundles are fetched.
 
 Use --ggpk to list from a Content.ggpk file instead of downloading from CDN.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		index, err := loadBundleIndex(cmd.Context())
+		index, err := extract.LoadIndex(cmd.Context(), cfg)
 		if err != nil {
 			return err
 		}
