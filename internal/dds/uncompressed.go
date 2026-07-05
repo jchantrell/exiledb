@@ -51,23 +51,28 @@ func DecompressUncompressed(buf []uint8, r io.Reader, width, height int, info In
 		return nil, err
 	}
 
-	// Validate the channel layout once: the bytes the masks will write per
-	// pixel must fit within the color model's stride, otherwise the write
-	// loop would run past the pixel's slot in buf.
-	pixelBytes := 0
+	// Validate the channel layout once: channel i in RGBA order writes to
+	// slot idx+i (8-bit) or idx+2*i (16-bit), so the furthest slot end must
+	// fit within the color model's stride.
+	pixelEnd := 0
 	for i := range bitMasks {
+		var end int
 		switch {
 		case bitMaskBits[i] == 0:
+			continue
 		case bitMaskBits[i] <= 8:
-			pixelBytes++
+			end = i + 1
 		case bitMaskBits[i] == 16:
-			pixelBytes += 2
+			end = 2*i + 2
 		default:
 			return nil, fmt.Errorf("unsupported number of bits: %v", bitMaskBits[i])
 		}
+		if end > pixelEnd {
+			pixelEnd = end
+		}
 	}
-	if pixelBytes > stride {
-		return nil, fmt.Errorf("pixel format masks write %d bytes per pixel, color model stride is %d", pixelBytes, stride)
+	if pixelEnd > stride {
+		return nil, fmt.Errorf("pixel format masks write up to byte %d per pixel, color model stride is %d", pixelEnd, stride)
 	}
 
 	fillAlpha := info.Header.PixelFormat.Flags&PixelFormatFlagAlphaPixels == 0
@@ -90,7 +95,6 @@ func DecompressUncompressed(buf []uint8, r io.Reader, width, height int, info In
 			}
 			dataU32 := binary.LittleEndian.Uint32(data[:])
 
-			offs := 0
 			for i := range bitMasks {
 				if bitMaskBits[i] == 0 {
 					continue
@@ -116,11 +120,9 @@ func DecompressUncompressed(buf []uint8, r io.Reader, width, height int, info In
 					case 8:
 						v = uint8(c)
 					}
-					buf[idx+offs] = v
-					offs++
+					buf[idx+i] = v
 				} else {
-					binary.BigEndian.PutUint16(buf[idx+offs:], uint16(c))
-					offs += 2
+					binary.BigEndian.PutUint16(buf[idx+2*i:], uint16(c))
 				}
 			}
 		}
