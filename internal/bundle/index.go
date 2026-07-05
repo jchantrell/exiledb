@@ -109,6 +109,9 @@ func loadBundleIndexFromRawData(indexFile io.ReaderAt) (*Index, error) {
 			offset:   binary.LittleEndian.Uint32(rec[12:]),
 			size:     binary.LittleEndian.Uint32(rec[16:]),
 		}
+		if files[i].bundleId >= bundleCount {
+			return nil, fmt.Errorf("file record %d references bundle %d of %d", i, files[i].bundleId, bundleCount)
+		}
 		if _, exists := filemap[hash]; exists {
 			return nil, fmt.Errorf("duplicate filemap hash %016x at record %d", hash, i)
 		}

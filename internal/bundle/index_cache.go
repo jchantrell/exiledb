@@ -120,6 +120,9 @@ func readIndexCache(cachePath string, expectedSourceLen int64) (*Index, error) {
 		files[i].bundleId = binary.LittleEndian.Uint32(metaBlob[off:])
 		files[i].offset = binary.LittleEndian.Uint32(metaBlob[off+4:])
 		files[i].size = binary.LittleEndian.Uint32(metaBlob[off+8:])
+		if files[i].bundleId >= uint32(len(bundles)) {
+			return nil, fmt.Errorf("file record %d references bundle %d of %d", i, files[i].bundleId, len(bundles))
+		}
 	}
 
 	return &Index{bundles: bundles, files: files}, nil
