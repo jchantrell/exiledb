@@ -7,10 +7,6 @@ import (
 )
 
 func decode3DcBlock(block []uint8) [8]uint8 {
-	if len(block) < 8 {
-		panic("block must be of length 8 or more")
-	}
-
 	var c [8]uint8
 	c[0], c[1] = block[0], block[1]
 
