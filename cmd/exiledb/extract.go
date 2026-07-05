@@ -33,15 +33,10 @@ Use --ggpk to extract directly from a Content.ggpk file instead of downloading f
 			ForceDownload: forceDownload,
 			Progress:      progress.Phase,
 		})
-		if err != nil {
-			return err
+		if stats != nil {
+			stats.Report(os.Stdout)
 		}
-		if stats == nil {
-			return nil
-		}
-
-		stats.Report(os.Stdout)
-		return nil
+		return err
 	},
 }
 

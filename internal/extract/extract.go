@@ -78,10 +78,18 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) (*Stats, error) 
 	}
 
 	if len(cfg.Files) > 0 {
-		exportFiles(ctx, cfg, manager, opts, stats)
+		if err := exportFiles(ctx, cfg, manager, opts, stats); err != nil {
+			return stats, err
+		}
 	}
 
 	stats.EndTime = time.Now()
+
+	// Per-table failures don't abort the run, but they must fail the exit
+	// code: downstream consumers treat exit 0 as a complete database.
+	if n := stats.ProcessingErrors + stats.DatabaseErrors; n > 0 {
+		return stats, fmt.Errorf("extraction completed with %d table errors", n)
+	}
 	return stats, nil
 }
 
@@ -339,17 +347,18 @@ func reportForeignKeys(ctx context.Context, db *database.Database) {
 // exportFiles writes the requested files to ./files. Export failures are
 // reported but do not abort the run; the stats reflect what was actually
 // exported.
-func exportFiles(ctx context.Context, cfg *config.Config, manager *bundle.BundleManager, opts Options, stats *Stats) {
+func exportFiles(ctx context.Context, cfg *config.Config, manager *bundle.BundleManager, opts Options, stats *Stats) error {
 	expandedFiles := manager.SortByBundle(manager.ExpandFilePaths(cfg.Files))
 	slog.Info("Exporting files", "requested", len(cfg.Files), "resolved", len(expandedFiles))
 
 	exporter := export.NewExporter(manager, filepath.Join(".", "files"))
 
 	exported, err := exporter.ExportFiles(ctx, expandedFiles, opts.phase())
-	if err != nil {
-		slog.Error("Failed to export files", "error", err)
-	}
 	stats.FilesExported = exported
+	if err != nil {
+		return fmt.Errorf("exporting files: %w", err)
+	}
+	return nil
 }
 
 // filterTables narrows the valid tables to the configured set, matching on
