@@ -72,23 +72,29 @@ func (e *Exporter) ExportFiles(ctx context.Context, files []string, progressCall
 	progress := &progressCounter{total: len(files), cb: progressCallback}
 	exported := 0
 	failed := 0
+	skipped := 0
 
 	if len(spriteFiles) > 0 {
-		ok, bad, err := e.exportSprites(ctx, spriteFiles, progress)
+		ok, bad, skip, err := e.exportSprites(ctx, spriteFiles, progress)
 		if err != nil {
 			return exported, err
 		}
 		exported += ok
 		failed += bad
+		skipped += skip
 	}
 
-	ok, bad, err := e.exportRegularFiles(ctx, regularFiles, progress)
+	ok, bad, skip, err := e.exportRegularFiles(ctx, regularFiles, progress)
 	exported += ok
 	failed += bad
+	skipped += skip
 	if err != nil {
 		return exported, err
 	}
 
+	if skipped > 0 {
+		slog.Info("Skipped already exported files", "count", skipped)
+	}
 	if failed > 0 {
 		slog.Warn("Some files failed to export", "failed", failed, "exported", exported)
 	}
@@ -153,10 +159,10 @@ func ResolveSpriteSheets(loader FileLoader, files []string) ([]string, error) {
 	return paths, nil
 }
 
-func (e *Exporter) exportSprites(ctx context.Context, spriteFiles []string, progress *progressCounter) (int, int, error) {
+func (e *Exporter) exportSprites(ctx context.Context, spriteFiles []string, progress *progressCounter) (int, int, int, error) {
 	index, err := e.spriteIndex()
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, 0, err
 	}
 
 	bySheet := make(map[string][]*SpriteImage)
@@ -178,7 +184,7 @@ func (e *Exporter) exportSprites(ctx context.Context, spriteFiles []string, prog
 	}
 	sort.Strings(sheets)
 
-	var exported, failed atomic.Int64
+	var exported, failed, skipped atomic.Int64
 	failed.Add(int64(missing))
 
 	g, ctx := errgroup.WithContext(ctx)
@@ -215,7 +221,7 @@ func (e *Exporter) exportSprites(ctx context.Context, spriteFiles []string, prog
 			for _, img := range images {
 				outputPath := filepath.Join(e.outputDir, sanitizePath(img.Name)+".png")
 				if _, err := os.Stat(outputPath); err == nil {
-					exported.Add(1)
+					skipped.Add(1)
 					progress.tick(sanitizePath(img.Name))
 					continue
 				}
@@ -235,14 +241,14 @@ func (e *Exporter) exportSprites(ctx context.Context, spriteFiles []string, prog
 	}
 
 	if err := g.Wait(); err != nil {
-		return int(exported.Load()), int(failed.Load()), err
+		return int(exported.Load()), int(failed.Load()), int(skipped.Load()), err
 	}
-	return int(exported.Load()), int(failed.Load()), nil
+	return int(exported.Load()), int(failed.Load()), int(skipped.Load()), nil
 }
 
-func (e *Exporter) exportRegularFiles(ctx context.Context, regularFiles []string, progress *progressCounter) (int, int, error) {
+func (e *Exporter) exportRegularFiles(ctx context.Context, regularFiles []string, progress *progressCounter) (int, int, int, error) {
 	if len(regularFiles) == 0 {
-		return 0, 0, nil
+		return 0, 0, 0, nil
 	}
 
 	var exported, failed, skipped atomic.Int64
@@ -262,7 +268,6 @@ func (e *Exporter) exportRegularFiles(ctx context.Context, regularFiles []string
 
 			if _, err := os.Stat(outputPath); err == nil {
 				skipped.Add(1)
-				exported.Add(1)
 				return nil
 			}
 
@@ -283,13 +288,9 @@ func (e *Exporter) exportRegularFiles(ctx context.Context, regularFiles []string
 	}
 
 	if err := g.Wait(); err != nil {
-		return int(exported.Load()), int(failed.Load()), err
+		return int(exported.Load()), int(failed.Load()), int(skipped.Load()), err
 	}
-
-	if s := skipped.Load(); s > 0 {
-		slog.Info("Skipped already exported files", "count", s)
-	}
-	return int(exported.Load()), int(failed.Load()), nil
+	return int(exported.Load()), int(failed.Load()), int(skipped.Load()), nil
 }
 
 func sanitizePath(path string) string {
