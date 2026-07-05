@@ -460,7 +460,7 @@ func refCodec(ft FieldType) codec {
 
 func decodeRowRef(data []byte) *uint32 {
 	value := binary.LittleEndian.Uint32(data)
-	if value == NullRowSentinel || value == 0 || value > MaxReasonableForeignKeyIndex {
+	if value == NullRowSentinel {
 		return nil
 	}
 	return &value

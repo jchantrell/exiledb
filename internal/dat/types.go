@@ -66,8 +66,6 @@ const (
 
 	LongIDNullSentinel uint64 = 0xfefe_fefe_fefe_fefe
 
-	MaxReasonableForeignKeyIndex uint32 = 100_000_000
-
 	// MinDATFileSize is the minimum size for a valid DAT file (4 bytes for row count + 8 bytes boundary)
 	MinDATFileSize = 12
 
