@@ -1,13 +1,9 @@
 package bundle
 
 import (
-	"bytes"
-	"encoding/binary"
 	"errors"
 	"fmt"
-	"io"
 	"os"
-	"strings"
 	"sync"
 
 	"github.com/jchantrell/exiledb/internal/cache"
@@ -55,21 +51,7 @@ func (s *CacheSource) getBundle(bundleName string) (*bundle, error) {
 		return cached.bundle, nil
 	}
 
-	bundlePath := s.cache.BundlePath(s.patch, bundleName+".bundle.bin")
-
-	if _, err := os.Stat(bundlePath); os.IsNotExist(err) {
-		bundlePath = s.cache.BundlePath(s.patch, bundleName)
-	}
-
-	if _, err := os.Stat(bundlePath); os.IsNotExist(err) {
-		return nil, fmt.Errorf("bundle file does not exist: %s", bundlePath)
-	}
-
-	if strings.HasSuffix(bundlePath, ".dat64") || strings.HasSuffix(bundlePath, ".dat") {
-		if isDirect, err := isDirectDATFile(bundlePath); err == nil && isDirect {
-			return nil, nil
-		}
-	}
+	bundlePath := s.cache.BundlePath(s.patch, bundleName)
 
 	bundleFile, err := os.Open(bundlePath)
 	if err != nil {
@@ -90,14 +72,6 @@ func (s *CacheSource) ReadFileFromBundle(bundleName string, offset, size uint32)
 	b, err := s.getBundle(bundleName)
 	if err != nil {
 		return nil, err
-	}
-
-	if b == nil {
-		bundlePath := s.cache.BundlePath(s.patch, bundleName+".bundle.bin")
-		if _, err := os.Stat(bundlePath); os.IsNotExist(err) {
-			bundlePath = s.cache.BundlePath(s.patch, bundleName)
-		}
-		return os.ReadFile(bundlePath)
 	}
 
 	data := make([]byte, size)
@@ -195,32 +169,3 @@ func (s *GgpkSource) Close() error {
 	return s.reader.Close()
 }
 
-func isDirectDATFile(filePath string) (bool, error) {
-	file, err := os.Open(filePath)
-	if err != nil {
-		return false, err
-	}
-	defer file.Close()
-
-	buffer := make([]byte, 1024)
-	n, err := file.Read(buffer)
-	if err != nil && err != io.EOF {
-		return false, err
-	}
-
-	if n < 12 {
-		return false, nil
-	}
-
-	boundaryMarker := []byte{0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb}
-	for i := 4; i <= n-8; i++ {
-		if bytes.Equal(buffer[i:i+8], boundaryMarker) {
-			rowCount := binary.LittleEndian.Uint32(buffer[0:4])
-			if rowCount > 0 && rowCount < 1000000 {
-				return true, nil
-			}
-		}
-	}
-
-	return false, nil
-}
