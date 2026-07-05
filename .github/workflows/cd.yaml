@@ -51,12 +51,14 @@ jobs:
 
       - name: Build binary
         shell: bash
+        env:
+          VERSION: ${{ needs.manage-release.outputs.tag_name }}
         run: |
           output_name="exiledb-${{ matrix.name }}"
           if [ "$RUNNER_OS" = "Windows" ]; then
             output_name="${output_name}.exe"
           fi
-          go build -o "${output_name}" ./cmd/exiledb
+          go build -ldflags "-X github.com/jchantrell/exiledb/internal/version.Version=${VERSION}" -o "${output_name}" ./cmd/exiledb
 
       - name: Upload to release
         uses: softprops/action-gh-release@v2

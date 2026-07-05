@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/jchantrell/exiledb/internal/config"
+	"github.com/jchantrell/exiledb/internal/version"
 	"github.com/lmittmann/tint"
 	"github.com/spf13/cobra"
 )
@@ -32,10 +33,6 @@ and processes them according to the latest schema to create a local database.`,
 			LogLevel:  must(flags.GetString("log-level")),
 			LogFormat: must(flags.GetString("log-format")),
 			GgpkPath:  must(flags.GetString("ggpk")),
-		}
-
-		if err := config.Validate(cfg); err != nil {
-			return err
 		}
 
 		var level slog.Level
@@ -65,6 +62,14 @@ and processes them according to the latest schema to create a local database.`,
 
 		slog.SetDefault(slog.New(handler))
 
+		if cmd.Name() == "version" || cmd.Name() == "upgrade" {
+			return nil
+		}
+
+		if err := config.Validate(cfg); err != nil {
+			return err
+		}
+
 		slog.Info("Configuration",
 			"patch", cfg.Patch,
 			"database", cfg.Database,
@@ -86,6 +91,7 @@ func main() {
 }
 
 func init() {
+	rootCmd.Version = version.Get()
 	rootCmd.PersistentFlags().StringP("patch", "p", "", "patch version to use")
 	rootCmd.PersistentFlags().StringP("database", "d", "exile.db", "database file path")
 	rootCmd.PersistentFlags().StringSlice("tables", nil, "comma-separated list of tables to extract")
