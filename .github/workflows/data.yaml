@@ -97,10 +97,16 @@ jobs:
           go build -o exiledb ./cmd/exiledb
           mkdir -p out
           ./exiledb manifest --patch "$VERSION" > out/manifest.txt
+          ./exiledb manifest --patch "$VERSION" --sizes | awk -F'\t' '$1 ~ /\.dat[a-z0-9]*$/' > out/dat-manifest.txt
 
           LINES=$(wc -l < out/manifest.txt)
           if [ "$LINES" -lt 100000 ]; then
             echo "::error::$GAME manifest has only $LINES lines, refusing to publish"
+            exit 1
+          fi
+          DAT_LINES=$(wc -l < out/dat-manifest.txt)
+          if [ "$DAT_LINES" -lt 1000 ]; then
+            echo "::error::$GAME dat manifest has only $DAT_LINES lines, refusing to publish"
             exit 1
           fi
 
@@ -114,10 +120,13 @@ jobs:
             poe2) TITLE="PoE2" ;;
           esac
           TOTAL=$(wc -l < out/manifest.txt)
+          DAT_TOTAL=$(wc -l < out/dat-manifest.txt)
           TAGS=$(gh release list --repo "$REPO" --limit 1000 --json tagName --jq '.[].tagName')
           PREV=$({ printf '%s\n' "$TAGS" | sed -n "s/^data-$GAME-//p" | grep -E '^[0-9]+(\.[0-9]+)+$'; echo "$VERSION"; } \
             | sort -uV | awk -v v="$VERSION" '$0==v{print p; exit}{p=$0}')
 
+          TAB=$(printf '\t')
+          DAT_LINE="- Dat files: $DAT_TOTAL (\`dat-manifest.txt\`)"
           if [ -n "$PREV" ] && [ "$PREV" != "$VERSION" ] \
             && curl -sfL "https://github.com/$REPO/releases/download/data-$GAME-$PREV/manifest.txt" -o out/prev.txt \
             && [ "$(wc -l < out/prev.txt)" -ge 100000 ]; then
@@ -125,6 +134,20 @@ jobs:
             LC_ALL=C comm -23 out/prev.txt out/manifest.txt > out/removed-files.txt
             ADDED=$(wc -l < out/added-files.txt)
             REMOVED=$(wc -l < out/removed-files.txt)
+
+            if curl -sfL "https://github.com/$REPO/releases/download/data-$GAME-$PREV/dat-manifest.txt" -o out/dat-prev.txt \
+              && [ -s out/dat-prev.txt ]; then
+              {
+                LC_ALL=C join -t"$TAB" -v2 out/dat-prev.txt out/dat-manifest.txt | awk -F'\t' '{print "+ "$1" "$2}'
+                LC_ALL=C join -t"$TAB" -v1 out/dat-prev.txt out/dat-manifest.txt | awk -F'\t' '{print "- "$1" "$2}'
+                LC_ALL=C join -t"$TAB" out/dat-prev.txt out/dat-manifest.txt | awk -F'\t' '$2 != $3 {printf "~ %s %d -> %d (%+d)\n", $1, $2, $3, $3-$2}'
+              } > out/dat-diff.txt
+              DAT_ADDED=$(grep -c '^+' out/dat-diff.txt || true)
+              DAT_REMOVED=$(grep -c '^-' out/dat-diff.txt || true)
+              DAT_RESIZED=$(grep -c '^~' out/dat-diff.txt || true)
+              DAT_LINE="- Dat files: $DAT_TOTAL, $DAT_ADDED added, $DAT_REMOVED removed, $DAT_RESIZED resized (\`dat-diff.txt\`)"
+            fi
+
             {
               echo "File manifest for $TITLE patch $VERSION."
               echo
@@ -132,12 +155,14 @@ jobs:
               echo "- Total files: $TOTAL"
               echo "- Added: $ADDED (\`added-files.txt\`)"
               echo "- Removed: $REMOVED (\`removed-files.txt\`)"
+              echo "$DAT_LINE"
             } > out/notes.md
           else
             {
               echo "File manifest for $TITLE patch $VERSION."
               echo
               echo "- Total files: $TOTAL"
+              echo "$DAT_LINE"
               echo
               echo "No previous release available to diff against."
             } > out/notes.md

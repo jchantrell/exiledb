@@ -11,9 +11,12 @@ case "$GAME" in
   *) echo "unknown game: $GAME" >&2; exit 1 ;;
 esac
 
-ASSETS=("$OUT/manifest.txt")
+ASSETS=("$OUT/manifest.txt" "$OUT/dat-manifest.txt")
 if [ -f "$OUT/added-files.txt" ]; then
   ASSETS+=("$OUT/added-files.txt" "$OUT/removed-files.txt")
+fi
+if [ -f "$OUT/dat-diff.txt" ]; then
+  ASSETS+=("$OUT/dat-diff.txt")
 fi
 
 if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" &>/dev/null; then
