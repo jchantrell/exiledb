@@ -1,6 +1,3 @@
-// Package upgrade implements self-update against GitHub releases: it checks
-// the latest release, downloads the matching binary, and swaps it into place
-// atomically.
 package upgrade
 
 import (
@@ -19,33 +16,26 @@ import (
 
 var releaseAPIURL = "https://api.github.com/repos/jchantrell/exiledb/releases/latest"
 
-// httpClient bounds the connection phases; total transfer time is governed
-// by the caller's context so a multi-MB binary download is not cut short.
 var httpClient = &http.Client{
 	Transport: &http.Transport{
 		ResponseHeaderTimeout: 30 * time.Second,
 	},
 }
 
-// Asset is a downloadable file attached to a GitHub release.
 type Asset struct {
 	Name               string `json:"name"`
 	BrowserDownloadURL string `json:"browser_download_url"`
 }
 
-// Release is the subset of a GitHub release needed to upgrade.
 type Release struct {
 	TagName string  `json:"tag_name"`
 	Assets  []Asset `json:"assets"`
 }
 
-// Check fetches the latest release from GitHub.
 func Check(ctx context.Context) (*Release, error) {
 	return fetchLatestRelease(ctx, releaseAPIURL)
 }
 
-// Apply downloads the release asset for the current platform and replaces
-// the running executable with it.
 func Apply(ctx context.Context, rel *Release) error {
 	asset, err := findAsset(rel.Assets, runtime.GOOS, runtime.GOARCH)
 	if err != nil {
@@ -114,8 +104,6 @@ func findAsset(assets []Asset, goos, goarch string) (*Asset, error) {
 	return nil, fmt.Errorf("no release asset %q available for %s/%s", want, goos, goarch)
 }
 
-// parseVersion parses "v1.2.3" (pre-release/build suffixes ignored) into
-// major, minor, patch.
 func parseVersion(v string) ([3]int, error) {
 	var out [3]int
 	s := strings.TrimPrefix(strings.TrimSpace(v), "v")
@@ -136,8 +124,6 @@ func parseVersion(v string) ([3]int, error) {
 	return out, nil
 }
 
-// CompareVersions returns -1, 0, or 1 if version a is older than, equal to,
-// or newer than version b.
 func CompareVersions(a, b string) (int, error) {
 	va, err := parseVersion(a)
 	if err != nil {
@@ -166,8 +152,6 @@ func executablePath() (string, error) {
 	return filepath.EvalSymlinks(exe)
 }
 
-// downloadToTemp downloads url into a temporary file inside dir so the
-// final rename stays on the same filesystem.
 func downloadToTemp(ctx context.Context, url, dir string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -205,9 +189,6 @@ func downloadToTemp(ctx context.Context, url, dir string) (string, error) {
 	return f.Name(), nil
 }
 
-// replaceExecutable swaps tmp into place at exe. On Windows a running
-// executable cannot be overwritten, so the current binary is moved aside
-// first; the leftover .old file is removed on a best-effort basis.
 func replaceExecutable(exe, tmp string) error {
 	if runtime.GOOS != "windows" {
 		return os.Rename(tmp, exe)

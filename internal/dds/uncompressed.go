@@ -51,9 +51,6 @@ func DecompressUncompressed(buf []uint8, r io.Reader, width, height int, info In
 		return nil, err
 	}
 
-	// Validate the channel layout once: channel i in RGBA order writes to
-	// slot idx+i (8-bit) or idx+2*i (16-bit), so the furthest slot end must
-	// fit within the color model's stride.
 	pixelEnd := 0
 	for i := range bitMasks {
 		var end int
@@ -130,18 +127,12 @@ func DecompressUncompressed(buf []uint8, r io.Reader, width, height int, info In
 	return buf, nil
 }
 
-// dxgiUncompressedFormat describes one uncompressed DXGI format: the color
-// model DecodeInfo advertises, the size of one source pixel, and the
-// translator that decodes a row of source pixels into destination bytes.
 type dxgiUncompressedFormat struct {
 	colorModel    color.Model
 	srcPixelBytes int
 	translateRow  func(dst, src []byte)
 }
 
-// dxgiUncompressedFormats is consumed by both DecodeInfo and
-// DecompressUncompressedDXT10 so a format is never advertised as decodable
-// unless a translator exists for it.
 var dxgiUncompressedFormats = map[DXGIFormat]dxgiUncompressedFormat{
 	DXGIFormatR32G32B32A32Float: {color.NRGBA64Model, 16, translateFloat32Row},
 	DXGIFormatR16G16B16A16Float: {color.NRGBA64Model, 8, translateFloat16Row},

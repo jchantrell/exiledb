@@ -119,7 +119,6 @@ func (r *Reader) findChild(dirOffset uint64, name string) (uint64, *FileRecord, 
 	return 0, nil, nil
 }
 
-// ReadFileData reads the raw data bytes of a file record.
 func (r *Reader) ReadFileData(rec *FileRecord) ([]byte, error) {
 	data := make([]byte, rec.DataLength)
 	_, err := r.file.ReadAt(data, int64(rec.DataOffset))
@@ -129,7 +128,6 @@ func (r *Reader) ReadFileData(rec *FileRecord) ([]byte, error) {
 	return data, nil
 }
 
-// FileReaderAt returns an io.ReaderAt scoped to the file's data region within the GGPK.
 func (r *Reader) FileReaderAt(rec *FileRecord) io.ReaderAt {
 	return io.NewSectionReader(r.file, int64(rec.DataOffset), int64(rec.DataLength))
 }

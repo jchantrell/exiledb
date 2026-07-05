@@ -9,22 +9,16 @@ import (
 	"github.com/jchantrell/exiledb/internal/dat"
 )
 
-// SchemaProgressCallback is called during schema creation to report progress
 type SchemaProgressCallback func(current int, total int, description string)
 
-// DDLManager handles schema creation with bulk DDL execution
 type DDLManager struct {
 	db *Database
 }
 
-// NewDDLManager creates a new DDL manager
 func NewDDLManager(db *Database) *DDLManager {
 	return &DDLManager{db: db}
 }
 
-// generateTableDDL renders the CREATE TABLE statement for a plan's main
-// table: standard columns, schema columns in plan order, the primary key,
-// then any scalar foreign key clauses.
 func generateTableDDL(plan *tablePlan) string {
 	columns := []string{
 		colIndex + " INTEGER",
@@ -35,7 +29,6 @@ func generateTableDDL(plan *tablePlan) string {
 	for _, col := range plan.columns {
 		columns = append(columns, fmt.Sprintf("%s %s", quoteSQLIdentifier(col.sqlName), col.sqlType))
 
-		// Foreign keys in ExileDB include the language dimension
 		if col.refTable != "" {
 			foreignKeys = append(foreignKeys, fmt.Sprintf("FOREIGN KEY (%s, %s) REFERENCES %s(%s, %s)",
 				colLanguage, quoteSQLIdentifier(col.sqlName),
@@ -51,9 +44,6 @@ func generateTableDDL(plan *tablePlan) string {
 		strings.Join(columns, ",\n    "))
 }
 
-// generateJunctionTableDDL renders the CREATE TABLE statement for a foreign
-// key array's junction table, with composite foreign keys back to the parent
-// row and out to the referenced table.
 func generateJunctionTableDDL(plan *tablePlan, junction *planJunction) string {
 	return fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %[1]s (
     %[2]s TEXT NOT NULL,
@@ -72,14 +62,12 @@ func generateJunctionTableDDL(plan *tablePlan, junction *planJunction) string {
 		quoteSQLIdentifier(junction.refTable), quoteSQLIdentifier(junction.refColumn))
 }
 
-// DDLRequest represents a request to execute a generated DDL statement
 type DDLRequest struct {
 	DDL         string
 	TableName   string
 	Description string
 }
 
-// CreateSchemas creates all schemas using bulk execution for optimal performance
 func (dm *DDLManager) CreateSchemas(ctx context.Context, tables []dat.TableSchema, progressCallback SchemaProgressCallback) error {
 	if len(tables) == 0 {
 		return nil
@@ -97,7 +85,6 @@ func (dm *DDLManager) CreateSchemas(ctx context.Context, tables []dat.TableSchem
 	return nil
 }
 
-// generateAllDDL generates the main table and junction table DDL for all tables
 func (dm *DDLManager) generateAllDDL(tables []dat.TableSchema) ([]DDLRequest, []DDLRequest, error) {
 	var mainRequests []DDLRequest
 	var junctionRequests []DDLRequest
@@ -114,8 +101,6 @@ func (dm *DDLManager) generateAllDDL(tables []dat.TableSchema) ([]DDLRequest, []
 	return mainRequests, junctionRequests, nil
 }
 
-// generateTableDDLRequests generates the main table request and any junction
-// table requests for a single table
 func (dm *DDLManager) generateTableDDLRequests(table dat.TableSchema) (DDLRequest, []DDLRequest, error) {
 	plan, err := newTablePlan(&table)
 	if err != nil {
@@ -153,12 +138,10 @@ func (dm *DDLManager) executeDDLBulk(ctx context.Context, mainRequests, junction
 		}
 	}
 
-	// Execute main tables in single transaction
 	if err := dm.executeDDLTransaction(ctx, mainRequests, "main tables", report); err != nil {
 		return fmt.Errorf("executing main tables: %w", err)
 	}
 
-	// Execute junction tables in single transaction
 	if err := dm.executeDDLTransaction(ctx, junctionRequests, "junction tables", report); err != nil {
 		return fmt.Errorf("executing junction tables: %w", err)
 	}
@@ -166,20 +149,17 @@ func (dm *DDLManager) executeDDLBulk(ctx context.Context, mainRequests, junction
 	return nil
 }
 
-// executeDDLTransaction executes DDL statements in a single transaction with progress reporting
 func (dm *DDLManager) executeDDLTransaction(ctx context.Context, ddlRequests []DDLRequest, description string, report func(description string)) error {
 	if len(ddlRequests) == 0 {
 		return nil
 	}
 
-	// Begin transaction for bulk DDL execution
 	tx, err := dm.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("beginning transaction for %s: %w", description, err)
 	}
 	defer tx.Rollback() // Safe to call even after commit
 
-	// Execute all DDL statements in the transaction
 	for _, req := range ddlRequests {
 		if _, err := tx.ExecContext(ctx, req.DDL); err != nil {
 			return fmt.Errorf("executing DDL for %s in %s: %w", req.TableName, description, err)
@@ -188,7 +168,6 @@ func (dm *DDLManager) executeDDLTransaction(ctx context.Context, ddlRequests []D
 		report(req.Description)
 	}
 
-	// Commit the transaction
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("committing DDL transaction for %s: %w", description, err)
 	}

@@ -12,30 +12,23 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-// Database represents a connection to the ExileDB SQLite database
 type Database struct {
 	db   *sql.DB
 	path string
 }
 
-// DatabaseOptions configures database creation and connection behavior.
-//
 // Foreign keys are never enforced: the generated FOREIGN KEY clauses are
 // documentation for query tools, and game data references rows in any order,
 // so loads run with enforcement off. Use CheckForeignKeys after a load to
 // report violations.
 type DatabaseOptions struct {
-	// Path to the SQLite database file
 	Path string
 
-	// WALMode enables Write-Ahead Logging mode for better concurrency
 	WALMode bool
 
-	// BusyTimeout sets the timeout for locked database operations
 	BusyTimeout time.Duration
 }
 
-// DefaultDatabaseOptions returns sensible default options for database connections
 func DefaultDatabaseOptions(path string) *DatabaseOptions {
 	return &DatabaseOptions{
 		Path:        path,
@@ -44,7 +37,6 @@ func DefaultDatabaseOptions(path string) *DatabaseOptions {
 	}
 }
 
-// NewDatabase creates a new database connection with the given options
 func NewDatabase(options *DatabaseOptions) (*Database, error) {
 	if options == nil {
 		return nil, fmt.Errorf("database options cannot be nil")
@@ -54,21 +46,17 @@ func NewDatabase(options *DatabaseOptions) (*Database, error) {
 		return nil, fmt.Errorf("database path cannot be empty")
 	}
 
-	// Create the directory if it doesn't exist
 	if err := ensureDirectory(options.Path); err != nil {
 		return nil, fmt.Errorf("creating database directory: %w", err)
 	}
 
-	// Build connection string with pragmas
 	connStr := buildConnectionString(options)
 
-	// Open the database connection
 	db, err := sql.Open("sqlite3", connStr)
 	if err != nil {
 		return nil, fmt.Errorf("opening database %s: %w", options.Path, err)
 	}
 
-	// Test the connection
 	if err := db.Ping(); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("testing database connection: %w", err)
@@ -105,7 +93,6 @@ func NewDatabase(options *DatabaseOptions) (*Database, error) {
 	return database, nil
 }
 
-// ForeignKeyViolation is one row reported by PRAGMA foreign_key_check.
 type ForeignKeyViolation struct {
 	Table  string
 	RowID  int64
@@ -163,7 +150,6 @@ func (d *Database) CheckForeignKeys(ctx context.Context) ([]ForeignKeyViolation,
 	return violations, rows.Err()
 }
 
-// Close closes the database connection
 func (d *Database) Close() error {
 	if d.db == nil {
 		return nil
@@ -179,7 +165,6 @@ func (d *Database) Close() error {
 	return nil
 }
 
-// BeginTx starts a new transaction with the given options
 func (d *Database) BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error) {
 	if d.db == nil {
 		return nil, fmt.Errorf("database connection is closed")
@@ -193,7 +178,6 @@ func (d *Database) BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, e
 	return tx, nil
 }
 
-// Exec executes a SQL statement that doesn't return rows
 func (d *Database) Exec(ctx context.Context, query string, args ...any) (sql.Result, error) {
 	if d.db == nil {
 		return nil, fmt.Errorf("database connection is closed")
@@ -207,7 +191,6 @@ func (d *Database) Exec(ctx context.Context, query string, args ...any) (sql.Res
 	return result, nil
 }
 
-// Query executes a SQL query that returns rows
 func (d *Database) Query(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
 	if d.db == nil {
 		return nil, fmt.Errorf("database connection is closed")
@@ -221,12 +204,10 @@ func (d *Database) Query(ctx context.Context, query string, args ...any) (*sql.R
 	return rows, nil
 }
 
-// QueryRow executes a SQL query that is expected to return at most one row
 func (d *Database) QueryRow(ctx context.Context, query string, args ...any) *sql.Row {
 	return d.db.QueryRowContext(ctx, query, args...)
 }
 
-// HasUserTables checks if the database contains any user tables (non-system and non-metadata tables)
 func (d *Database) HasUserTables(ctx context.Context) (bool, error) {
 	if d.db == nil {
 		return false, fmt.Errorf("database connection is closed")
@@ -263,7 +244,6 @@ func buildConnectionString(options *DatabaseOptions) string {
 	return options.Path + "?" + strings.Join(params, "&")
 }
 
-// ensureDirectory creates the directory for the database file if it doesn't exist
 func ensureDirectory(dbPath string) error {
 	dir := filepath.Dir(dbPath)
 	if dir == "." || dir == "" {

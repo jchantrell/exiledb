@@ -6,8 +6,6 @@ import "runtime/debug"
 // -ldflags "-X github.com/jchantrell/exiledb/internal/version.Version=vX.Y.Z".
 var Version = "dev"
 
-// Get returns the release version. For binaries built without ldflags
-// (e.g. go install), it falls back to the module version from build info.
 func Get() string {
 	if Version != "dev" {
 		return Version

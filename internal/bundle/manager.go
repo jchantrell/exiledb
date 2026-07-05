@@ -7,13 +7,11 @@ import (
 	"slices"
 )
 
-// BundleManager provides a high-level API for accessing files within bundles.
 type BundleManager struct {
 	source BundleSource
 	index  *Index
 }
 
-// NewBundleManager creates a bundle manager backed by the given source.
 func NewBundleManager(source BundleSource) (*BundleManager, error) {
 	indexData, err := source.ReadIndex()
 	if err != nil {
@@ -33,17 +31,14 @@ func NewBundleManager(source BundleSource) (*BundleManager, error) {
 	}, nil
 }
 
-// Index returns the parsed bundle index backing this manager.
 func (m *BundleManager) Index() *Index {
 	return m.index
 }
 
-// FileExists checks if a file exists in the bundle index
 func (m *BundleManager) FileExists(path string) bool {
 	return m.index.find(path) != nil
 }
 
-// GetFile reads the entire contents of a file from the bundle
 func (m *BundleManager) GetFile(path string) ([]byte, error) {
 	info := m.index.find(path)
 	if info == nil {
@@ -61,13 +56,10 @@ func (m *BundleManager) GetFile(path string) ([]byte, error) {
 	return content, nil
 }
 
-// ExpandFilePaths expands a list of paths, replacing directory prefixes with all files under them.
 func (m *BundleManager) ExpandFilePaths(paths []string) []string {
 	return m.index.ExpandFilePaths(paths)
 }
 
-// SortByBundle reorders paths so files from the same bundle are contiguous,
-// minimizing bundle open/close overhead during sequential processing.
 func (m *BundleManager) SortByBundle(paths []string) []string {
 	type fileWithBundle struct {
 		path     string
@@ -95,7 +87,6 @@ func (m *BundleManager) SortByBundle(paths []string) []string {
 	return sorted
 }
 
-// Close closes the manager and releases resources
 func (m *BundleManager) Close() error {
 	return m.source.Close()
 }

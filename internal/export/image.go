@@ -16,8 +16,6 @@ type CropParams struct {
 	Left   int
 }
 
-// DecodeDDS decodes DDS bytes into an image. Sprite export decodes each
-// sheet once and crops many images from it.
 func DecodeDDS(ddsData []byte) (image.Image, error) {
 	img, err := dds.Decode(ddsData)
 	if err != nil {
@@ -26,7 +24,6 @@ func DecodeDDS(ddsData []byte) (image.Image, error) {
 	return img, nil
 }
 
-// EncodePNG writes an image (optionally cropped) to outputPath as PNG.
 func EncodePNG(img image.Image, crop *CropParams, outputPath string) error {
 	if crop != nil {
 		bounds := image.Rect(crop.Left, crop.Top, crop.Left+crop.Width, crop.Top+crop.Height)
@@ -58,7 +55,6 @@ func EncodePNG(img image.Image, crop *CropParams, outputPath string) error {
 	return nil
 }
 
-// ConvertDDSToPNG decodes DDS bytes and writes them to outputPath as PNG.
 func ConvertDDSToPNG(ddsData []byte, crop *CropParams, outputPath string) error {
 	img, err := DecodeDDS(ddsData)
 	if err != nil {

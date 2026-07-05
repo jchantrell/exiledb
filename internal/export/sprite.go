@@ -8,7 +8,6 @@ import (
 	"unicode/utf16"
 )
 
-// SpriteImage represents a single image within a sprite sheet
 type SpriteImage struct {
 	Name       string
 	SpritePath string
@@ -18,13 +17,11 @@ type SpriteImage struct {
 	Height     int
 }
 
-// SpriteList defines a sprite sheet configuration
 type SpriteList struct {
 	Path       string
 	NamePrefix string
 }
 
-// SpriteLists contains all known sprite sheet definitions
 var SpriteLists = []SpriteList{
 	{
 		Path:       "Art/UIImages1.txt",
@@ -44,10 +41,7 @@ var SpriteLists = []SpriteList{
 // "name" "spritePath" x1 y1 x2 y2  (left top right bottom, inclusive)
 var spriteLinePattern = regexp.MustCompile(`^"([^"]+)" "([^"]+)" ([^ ]+) ([^ ]+) ([^ ]+) ([^ ]+)$`)
 
-// ParseSpriteIndex parses a sprite index file (UTF-16LE encoded)
-// Returns a slice of SpriteImage entries
 func ParseSpriteIndex(data []byte) ([]SpriteImage, error) {
-	// Decode UTF-16LE to string
 	text, err := DecodeUTF16LE(data)
 	if err != nil {
 		return nil, fmt.Errorf("decoding UTF-16LE: %w", err)
@@ -56,7 +50,6 @@ func ParseSpriteIndex(data []byte) ([]SpriteImage, error) {
 	return parseSpriteText(text)
 }
 
-// parseSpriteText parses the sprite index text format
 func parseSpriteText(text string) ([]SpriteImage, error) {
 	text = strings.TrimSpace(text)
 	if text == "" {
@@ -110,7 +103,6 @@ func parseSpriteText(text string) ([]SpriteImage, error) {
 	return sprites, nil
 }
 
-// DecodeUTF16LE decodes UTF-16LE byte data to a string
 func DecodeUTF16LE(data []byte) (string, error) {
 	if len(data)%2 != 0 {
 		return "", fmt.Errorf("invalid UTF-16LE data: odd number of bytes")
@@ -124,7 +116,6 @@ func DecodeUTF16LE(data []byte) (string, error) {
 	return string(utf16.Decode(u16)), nil
 }
 
-// IsInsideSprite checks if the given path is inside a sprite sheet
 func IsInsideSprite(path string) bool {
 	for _, list := range SpriteLists {
 		if strings.HasPrefix(path, list.NamePrefix) {

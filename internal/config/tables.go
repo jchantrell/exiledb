@@ -2,7 +2,6 @@ package config
 
 import "fmt"
 
-// validateTableNames ensures table names are valid (non-empty and contain only alphanumeric characters and underscores)
 func validateTableNames(tables []string) error {
 	for _, table := range tables {
 		if table == "" {

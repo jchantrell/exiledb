@@ -8,10 +8,8 @@ import (
 	"github.com/jchantrell/exiledb/internal/poe"
 )
 
-// CommunitySchemaURL is the official URL for the community schema
 const CommunitySchemaURL = "https://github.com/poe-tool-dev/dat-schema/releases/download/latest/schema.min.json"
 
-// TableColumn represents a column definition from the community schema
 type TableColumn struct {
 	Name        *string          `json:"name"`
 	Description *string          `json:"description"`
@@ -26,13 +24,11 @@ type TableColumn struct {
 	Interval    bool             `json:"interval"`   // Whether this is an interval field
 }
 
-// ColumnReference represents a foreign key relationship from the community schema
 type ColumnReference struct {
 	Table  string  `json:"table"`            // Referenced table name
 	Column *string `json:"column,omitempty"` // Referenced column name (optional)
 }
 
-// ValidFor represents game version compatibility flags
 type ValidFor int
 
 const (
@@ -41,7 +37,6 @@ const (
 	ValidForBoth ValidFor = 0x03 // Both games (PoE1 | PoE2)
 )
 
-// TableSchema represents a complete table definition from the community schema
 type TableSchema struct {
 	ValidFor ValidFor      `json:"validFor"` // Game version compatibility
 	Name     string        `json:"name"`     // Table name (matches DAT filename)
@@ -49,7 +44,6 @@ type TableSchema struct {
 	Tags     []string      `json:"tags"`     // Metadata tags
 }
 
-// SchemaEnumeration represents an enumeration definition from the community schema
 type SchemaEnumeration struct {
 	ValidFor    ValidFor  `json:"validFor"`    // Game version compatibility
 	Name        string    `json:"name"`        // Enumeration name
@@ -57,31 +51,25 @@ type SchemaEnumeration struct {
 	Enumerators []*string `json:"enumerators"` // Enumeration values (nullable)
 }
 
-// SchemaMetadata contains metadata about the community schema
 type SchemaMetadata struct {
 	Version   int `json:"version"`   // Schema version number
 	CreatedAt int `json:"createdAt"` // Unix timestamp when schema was created
 }
 
-// CommunitySchema represents the complete community schema file structure
 type CommunitySchema struct {
 	SchemaMetadata
 	Tables       []TableSchema       `json:"tables"`       // Table definitions
 	Enumerations []SchemaEnumeration `json:"enumerations"` // Enumeration definitions
 }
 
-// GetTableSchema finds a table schema by name filtered by game version compatibility
 func (cs *CommunitySchema) GetTableSchema(tableName string, gameVersion string) (*TableSchema, error) {
-	// Parse game version to determine major version
 	majorVersion, err := poe.ParseGameVersion(gameVersion)
 	if err != nil {
 		return nil, fmt.Errorf("parsing game version %s: %w", gameVersion, err)
 	}
 
-	// Collect all matching schemas
 	var matchingSchemas []*TableSchema
 
-	// Try exact match first for performance
 	for i := range cs.Tables {
 		if cs.Tables[i].Name == tableName {
 			validForGame := cs.Tables[i].ValidFor.IsValidForGame(majorVersion)
@@ -91,7 +79,6 @@ func (cs *CommunitySchema) GetTableSchema(tableName string, gameVersion string) 
 		}
 	}
 
-	// Fall back to case-insensitive match for DAT file names if no exact matches found
 	if len(matchingSchemas) == 0 {
 		lowerTableName := strings.ToLower(tableName)
 		for i := range cs.Tables {
@@ -120,7 +107,6 @@ func (cs *CommunitySchema) GetTableSchema(tableName string, gameVersion string) 
 	return selectedSchema, nil
 }
 
-// GetValidTables returns all tables that are valid for the given game version
 func (cs *CommunitySchema) GetValidTables(gameVersion int) []TableSchema {
 	var validTables []TableSchema
 	for _, table := range cs.Tables {
@@ -131,13 +117,10 @@ func (cs *CommunitySchema) GetValidTables(gameVersion int) []TableSchema {
 	return validTables
 }
 
-// IsValidForGame checks if a ValidFor flag is compatible with the given game version
 func (vf ValidFor) IsValidForGame(gameVersion int) bool {
 	if gameVersion >= 4 {
-		// Path of Exile 2 (4.x versions)
 		return (vf & ValidForPoE2) != 0
 	} else {
-		// Path of Exile 1 (3.x versions)
 		return (vf & ValidForPoE1) != 0
 	}
 }

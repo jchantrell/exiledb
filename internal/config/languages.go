@@ -2,7 +2,6 @@ package config
 
 import "fmt"
 
-// Supported language constants for Path of Exile
 const (
 	LanguageEnglish            = "English"
 	LanguageFrench             = "French"
@@ -17,7 +16,6 @@ const (
 	LanguageSimplifiedChinese  = "Simplified Chinese"
 )
 
-// validLanguages contains all supported languages
 var validLanguages = map[string]bool{
 	LanguageEnglish:            true,
 	LanguageFrench:             true,
@@ -32,14 +30,10 @@ var validLanguages = map[string]bool{
 	LanguageSimplifiedChinese:  true,
 }
 
-// isValidLanguage checks if a language string is supported
 func isValidLanguage(language string) bool {
 	return validLanguages[language]
 }
 
-// validateLanguages ensures all provided languages are supported
-// Returns error if any language is invalid
-// If languages slice is empty, returns nil (will default to English)
 func validateLanguages(languages []string) error {
 	if len(languages) == 0 {
 		return nil // Empty list is valid, will default to English

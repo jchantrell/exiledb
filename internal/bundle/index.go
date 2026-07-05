@@ -31,26 +31,20 @@ type bundlePathrep struct {
 }
 
 func loadBundleIndex(indexFile io.ReaderAt) (*Index, error) {
-	// Try to determine if this is compressed bundle data or raw index data
-	// by attempting to read it as a bundle first
 	indexBundle, err := OpenBundle(indexFile)
 	if err != nil {
-		// If it fails to parse as a bundle, assume it's raw index data
 		return loadBundleIndexFromRawData(indexFile)
 	}
 
-	// Successfully parsed as bundle - decompress it
 	indexData := make([]byte, indexBundle.Size())
 	if _, err := indexBundle.ReadAt(indexData, 0); err != nil {
 		return nil, fmt.Errorf("unable to read index bundle: %w", err)
 	}
 
-	// Parse the decompressed data
 	return loadBundleIndexFromRawData(bytes.NewReader(indexData))
 }
 
 func loadBundleIndexFromRawData(indexFile io.ReaderAt) (*Index, error) {
-	// Read all the raw index data
 	var indexData []byte
 	var offset int64 = 0
 	buf := make([]byte, 64*1024) // 64KB chunks
@@ -169,19 +163,14 @@ func loadBundleIndexFromRawData(indexFile io.ReaderAt) (*Index, error) {
 		data := pathData[pr.offset:end]
 		paths := readPathspec(data)
 		for _, path := range paths {
-			// Try modern hash first (MurmurHash64A for PoE ≥3.21.2)
 			modernHash := MurmurHashPath(path)
 			if fe, found := filemap[modernHash]; found {
 				files[fe].path = path
 			} else {
-				// Fallback to legacy hash (FNV1a for PoE ≤3.21.2)
 				legacyHash := FNVHashPath(path)
 				if fe, found := filemap[legacyHash]; found {
 					files[fe].path = path
 				} else {
-					// This is not a panic condition - some paths in the pathmap
-					// may not have corresponding files in the filemap
-					// This is normal behavior for bundle indices
 					continue
 				}
 			}
@@ -281,8 +270,6 @@ func readPathspecString(data []byte, offset *int) string {
 	return s
 }
 
-// find binary-searches for a file by path (case-insensitive) and returns its
-// entry, or nil if not present.
 func (idx *Index) find(path string) *bundleFileInfo {
 	files := idx.files
 	lowerPath := strings.ToLower(path)
@@ -297,8 +284,6 @@ func (idx *Index) find(path string) *bundleFileInfo {
 	return nil
 }
 
-// GetFileInfo returns information about a file, including which bundle contains it.
-// Path lookup is case-insensitive.
 func (idx *Index) GetFileInfo(path string) (*FileLocation, error) {
 	file := idx.find(path)
 	if file == nil {
@@ -311,7 +296,6 @@ func (idx *Index) GetFileInfo(path string) (*FileLocation, error) {
 	}, nil
 }
 
-// ListFiles returns all file paths in the index
 func (idx *Index) ListFiles() []string {
 	files := make([]string, len(idx.files))
 	for i, file := range idx.files {
@@ -320,7 +304,6 @@ func (idx *Index) ListFiles() []string {
 	return files
 }
 
-// ListFileEntries returns all file paths with their uncompressed sizes
 func (idx *Index) ListFileEntries() []FileEntry {
 	entries := make([]FileEntry, len(idx.files))
 	for i, file := range idx.files {
@@ -329,7 +312,6 @@ func (idx *Index) ListFileEntries() []FileEntry {
 	return entries
 }
 
-// ListFilesWithPrefix returns all files whose path starts with the given prefix (case-insensitive)
 func (idx *Index) ListFilesWithPrefix(prefix string) []string {
 	files := idx.files
 	lowerPrefix := strings.ToLower(prefix)
@@ -352,9 +334,6 @@ func (idx *Index) ListFilesWithPrefix(prefix string) []string {
 	return result
 }
 
-// ExpandFilePaths expands a list of paths, replacing directory prefixes with all
-// files under them. Exact file matches are kept as-is; paths that match neither
-// a file nor a directory prefix pass through unchanged.
 func (idx *Index) ExpandFilePaths(paths []string) []string {
 	var expanded []string
 	for _, p := range paths {

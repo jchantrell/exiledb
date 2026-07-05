@@ -9,8 +9,6 @@ import (
 	"github.com/jchantrell/exiledb/internal/poe"
 )
 
-// discoverRequiredBundles determines which bundles must be downloaded to
-// satisfy the requested tables, languages, and files.
 func discoverRequiredBundles(index *bundle.Index, patch string, languages []string, tables []string, files []string) []string {
 	bundleSet := make(map[string]bool)
 

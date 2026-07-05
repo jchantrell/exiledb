@@ -13,16 +13,12 @@ func MurmurHash64A(data []byte, seed uint64) uint64 {
 		r = 47
 	)
 
-	// Initialize hash with seed XOR length
 	h := seed ^ (uint64(len(data)) * m)
 
-	// Process 8-byte chunks
 	remainder := len(data) & 7
 	alignedLength := len(data) - remainder
 
-	// Process aligned 8-byte chunks
 	for i := 0; i < alignedLength; i += 8 {
-		// Extract 8 bytes as little-endian uint64
 		k := binary.LittleEndian.Uint64(data[i : i+8])
 
 		k *= m
@@ -33,7 +29,6 @@ func MurmurHash64A(data []byte, seed uint64) uint64 {
 		h *= m
 	}
 
-	// Handle remaining bytes (less than 8)
 	switch remainder {
 	case 7:
 		h ^= uint64(data[alignedLength+6]) << 48
@@ -58,7 +53,6 @@ func MurmurHash64A(data []byte, seed uint64) uint64 {
 		h *= m
 	}
 
-	// Final avalanche
 	h ^= h >> r
 	h *= m
 	h ^= h >> r
@@ -80,10 +74,8 @@ func FNVHashPath(path string) uint64 {
 		fnvPrime = uint64(0x100000001b3)
 	)
 
-	// Convert path to lowercase and add "++" suffix
 	data := []byte(strings.ToLower(path) + "++")
 
-	// FNV-1a algorithm
 	hash := fnvBasis
 	for _, b := range data {
 		hash ^= uint64(b)

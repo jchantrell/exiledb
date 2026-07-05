@@ -10,7 +10,6 @@ import (
 	"github.com/jchantrell/exiledb/internal/ggpk"
 )
 
-// BundleSource abstracts where bundle data comes from (disk cache vs GGPK archive).
 type BundleSource interface {
 	ReadIndex() ([]byte, error)
 	ReadFileFromBundle(bundleName string, offset, size uint32) ([]byte, error)
@@ -18,7 +17,6 @@ type BundleSource interface {
 	Close() error
 }
 
-// CacheSource reads bundles from the local disk cache (CDN-downloaded files).
 type CacheSource struct {
 	patch       string
 	cache       *cache.Cache
@@ -99,7 +97,6 @@ func (s *CacheSource) Close() error {
 	return errors.Join(errs...)
 }
 
-// GgpkSource reads bundles from within a GGPK archive file.
 type GgpkSource struct {
 	reader      *ggpk.Reader
 	ggpkPath    string

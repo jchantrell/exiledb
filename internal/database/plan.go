@@ -7,8 +7,6 @@ import (
 	"github.com/jchantrell/exiledb/internal/poe"
 )
 
-// Standard columns present on every generated table, plus the junction table
-// columns used for foreign key array storage.
 const (
 	colIndex       = "_index"
 	colLanguage    = "_language"
@@ -17,9 +15,6 @@ const (
 	colValue       = "value"
 )
 
-// planColumn is one SQL column of the main table: its SQL name, the parsed
-// row field it is populated from, its SQLite type, and (for scalar foreign
-// keys) the referenced table and column.
 type planColumn struct {
 	sqlName   string
 	field     string
@@ -29,8 +24,6 @@ type planColumn struct {
 	column    *dat.TableColumn
 }
 
-// planJunction is one named foreign key array column, stored as a junction
-// table instead of a main table column.
 type planJunction struct {
 	tableName string
 	sqlName   string
@@ -39,10 +32,6 @@ type planJunction struct {
 	refColumn string
 }
 
-// tablePlan is the canonical relational mapping of one dat.TableSchema: the
-// main table name, its ordered columns, and its junction tables. Both DDL
-// generation and the insert plan derive from it so CREATE and INSERT can
-// never disagree on names, order, or column sets.
 type tablePlan struct {
 	sqlName    string
 	schemaName string
@@ -50,8 +39,6 @@ type tablePlan struct {
 	junctions  []planJunction
 }
 
-// newTablePlan computes the relational layout for a table schema, validating
-// every identifier the remote schema contributes to generated SQL.
 func newTablePlan(schema *dat.TableSchema) (*tablePlan, error) {
 	if schema == nil {
 		return nil, fmt.Errorf("table schema cannot be nil")
@@ -75,9 +62,6 @@ func newTablePlan(schema *dat.TableSchema) (*tablePlan, error) {
 			return nil, fmt.Errorf("table %s column %d: %w", schema.Name, i, err)
 		}
 
-		// Foreign key arrays are stored in junction tables, not main table
-		// columns. Unnamed ones have no junction table either and are
-		// dropped entirely.
 		if column.Array && column.References != nil {
 			if column.Name == nil {
 				continue
@@ -134,7 +118,6 @@ func newTablePlan(schema *dat.TableSchema) (*tablePlan, error) {
 		}
 
 		if column.Array {
-			// Simple arrays are stored as JSON text.
 			col.sqlType = "TEXT"
 		} else {
 			sqlType, err := mapDATTypeToSQL(column.Type)
@@ -157,8 +140,6 @@ func newTablePlan(schema *dat.TableSchema) (*tablePlan, error) {
 	return plan, nil
 }
 
-// referenceTarget resolves a schema foreign key reference to its SQL table
-// and column names, defaulting to the _index column.
 func referenceTarget(ref *dat.ColumnReference) (table, column string, err error) {
 	if ref == nil {
 		return "", "", fmt.Errorf("nil reference")
@@ -175,7 +156,6 @@ func referenceTarget(ref *dat.ColumnReference) (table, column string, err error)
 	return table, column, nil
 }
 
-// mapDATTypeToSQL maps DAT field types to SQLite types
 func mapDATTypeToSQL(fieldType dat.FieldType) (string, error) {
 	switch fieldType {
 	case dat.TypeBool:

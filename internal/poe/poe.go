@@ -9,10 +9,8 @@ import (
 	"strings"
 )
 
-// DatExtension is the dat file extension used by current game clients.
 const DatExtension = ".datc64"
 
-// ParseGameVersion parses a game version string and returns the major version number
 func ParseGameVersion(version string) (int, error) {
 	if version == "" {
 		return 0, fmt.Errorf("version string cannot be empty")
@@ -35,7 +33,6 @@ func ParseGameVersion(version string) (int, error) {
 	return majorVersion, nil
 }
 
-// IsPoE2 reports whether the patch version belongs to Path of Exile 2 (4.x+).
 func IsPoE2(version string) bool {
 	major, err := ParseGameVersion(version)
 	if err != nil {
@@ -44,8 +41,6 @@ func IsPoE2(version string) bool {
 	return major >= 4
 }
 
-// DatPath returns the correct dat file path for a table based on game version.
-// PoE2 (4.x+) stores tables under data/balance/, PoE1 under data/.
 func DatPath(patch, tableName, extension string) string {
 	lower := strings.ToLower(tableName)
 	if IsPoE2(patch) {
@@ -54,7 +49,6 @@ func DatPath(patch, tableName, extension string) string {
 	return fmt.Sprintf("data/%s%s", lower, extension)
 }
 
-// DatLangPath returns the correct language-specific dat file path based on game version.
 func DatLangPath(patch, language, tableName, extension string) string {
 	lower := strings.ToLower(tableName)
 	langLower := strings.ToLower(language)
@@ -64,8 +58,6 @@ func DatLangPath(patch, language, tableName, extension string) string {
 	return fmt.Sprintf("data/%s/%s%s", langLower, lower, extension)
 }
 
-// ToSnakeCase converts a community-schema name (CamelCase) to the snake_case
-// form used for SQL tables and columns.
 func ToSnakeCase(s string) string {
 	if s == "" {
 		return s

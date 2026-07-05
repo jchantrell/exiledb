@@ -44,7 +44,6 @@ Use --ggpk to read from a Content.ggpk file instead of downloading from CDN.`,
 	},
 }
 
-// sizeLines formats entries as "path<TAB>size" lines, sorted and deduped.
 func sizeLines(entries []bundle.FileEntry) []string {
 	lines := make([]string, 0, len(entries))
 	for _, e := range entries {
@@ -57,7 +56,6 @@ func sizeLines(entries []bundle.FileEntry) []string {
 	return dedupeNonEmpty(lines)
 }
 
-// dedupeNonEmpty removes empty and duplicate paths from a sorted slice.
 // The bundle index contains a handful of entries with unresolvable names.
 func dedupeNonEmpty(sorted []string) []string {
 	result := make([]string, 0, len(sorted))
@@ -72,7 +70,6 @@ func dedupeNonEmpty(sorted []string) []string {
 	return result
 }
 
-// writeLines writes one line per entry to stdout.
 func writeLines(lines []string) error {
 	w := bufio.NewWriter(os.Stdout)
 	for _, line := range lines {

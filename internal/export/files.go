@@ -15,18 +15,15 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-// FileLoader defines the interface for loading files from bundles
 type FileLoader interface {
 	GetFile(path string) ([]byte, error)
 }
 
-// Exporter handles exporting files from bundles to disk
 type Exporter struct {
 	loader    FileLoader
 	outputDir string
 }
 
-// NewExporter creates a new file exporter
 func NewExporter(loader FileLoader, outputDir string) *Exporter {
 	return &Exporter{
 		loader:    loader,
@@ -34,10 +31,8 @@ func NewExporter(loader FileLoader, outputDir string) *Exporter {
 	}
 }
 
-// ProgressCallback is called to report export progress
 type ProgressCallback func(current int, total int, description string)
 
-// progressCounter is the single shared progress state for an export run.
 type progressCounter struct {
 	done  atomic.Int64
 	total int
@@ -54,11 +49,6 @@ func (p *progressCounter) tick(name string) {
 	}
 }
 
-// ExportFiles exports the specified files from bundles to the output
-// directory, handling sprite extraction and DDS conversion as needed.
-// Individual file failures are logged and counted rather than aborting the
-// run; the returned count is the number of files actually exported (or
-// already present).
 func (e *Exporter) ExportFiles(ctx context.Context, files []string, progressCallback ProgressCallback) (int, error) {
 	if len(files) == 0 {
 		return 0, nil
@@ -103,7 +93,6 @@ func (e *Exporter) ExportFiles(ctx context.Context, files []string, progressCall
 	return exported, nil
 }
 
-// spriteIndex maps image names to their entries across all sprite lists.
 func (e *Exporter) spriteIndex() (map[string]*SpriteImage, error) {
 	index := make(map[string]*SpriteImage)
 	for _, list := range SpriteLists {
@@ -126,9 +115,6 @@ func (e *Exporter) spriteIndex() (map[string]*SpriteImage, error) {
 	return index, nil
 }
 
-// ResolveSpriteSheets returns the sheet DDS paths needed to export the given
-// sprite-image names. Callers use it to discover which bundles must be
-// downloaded before export can run.
 func ResolveSpriteSheets(loader FileLoader, files []string) ([]string, error) {
 	e := &Exporter{loader: loader}
 
@@ -163,9 +149,6 @@ func ResolveSpriteSheets(loader FileLoader, files []string) ([]string, error) {
 	return paths, nil
 }
 
-// exportSprites exports images cropped from sprite sheets. Each sheet is
-// decoded once and processed by one worker; a failing sheet fails only its
-// own images. Returns (exported, failed).
 func (e *Exporter) exportSprites(ctx context.Context, spriteFiles []string, progress *progressCounter) (int, int, error) {
 	index, err := e.spriteIndex()
 	if err != nil {
@@ -253,8 +236,6 @@ func (e *Exporter) exportSprites(ctx context.Context, spriteFiles []string, prog
 	return int(exported.Load()), int(failed.Load()), nil
 }
 
-// exportRegularFiles exports non-sprite files using parallel workers.
-// Returns (exported, failed).
 func (e *Exporter) exportRegularFiles(ctx context.Context, regularFiles []string, progress *progressCounter) (int, int, error) {
 	if len(regularFiles) == 0 {
 		return 0, 0, nil
@@ -345,8 +326,6 @@ func (e *Exporter) exportRegularFiles(ctx context.Context, regularFiles []string
 	return int(exported.Load()), int(failed.Load()), nil
 }
 
-// sanitizePath sanitizes a file path for use as a filename
-// Replaces forward slashes with @ symbols
 func sanitizePath(path string) string {
 	return strings.ReplaceAll(path, "/", "@")
 }

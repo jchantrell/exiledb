@@ -12,12 +12,10 @@ import (
 	"unicode/utf16"
 )
 
-// DATParser parses Path of Exile DAT files
 type DATParser struct {
 	options *ParserOptions
 }
 
-// ParserOptions configures DAT parsing behavior
 type ParserOptions struct {
 	MaxStringLength           int // Maximum string length, to prevent memory issues
 	MaxArrayCount             int // Maximum number of array elements
@@ -179,8 +177,6 @@ func findAlignedBoundaryMarker(data []byte, rowCount int) int {
 	}
 }
 
-// decoder holds the per-file decode context. It is created per parse call so
-// a shared DATParser carries no per-file state.
 type decoder struct {
 	dynamic []byte
 	options *ParserOptions
@@ -242,8 +238,6 @@ func (d *decoder) parseRow(index int, rowData []byte, schema *TableSchema) Parse
 	}
 }
 
-// FieldName is the parsed-row field key for a schema column: the schema name
-// when present, otherwise "UnknownN" by column index.
 func FieldName(column *TableColumn, index int) string {
 	if column.Name == nil {
 		return "Unknown" + strconv.Itoa(index)
@@ -251,8 +245,6 @@ func FieldName(column *TableColumn, index int) string {
 	return *column.Name
 }
 
-// An interval column occupies twice its scalar width and decodes to a
-// (min, max) range stored as two fields.
 func IntervalFieldNames(column *TableColumn, index int) (string, string) {
 	name := FieldName(column, index)
 	return name + "Min", name + "Max"
@@ -400,8 +392,6 @@ var codecs = map[FieldType]codec{
 	TypeLongID:     {scalar: decodeLongID},
 }
 
-// readSlice decodes count elements of size bytes each from data into a typed
-// slice. A count of zero yields the empty typed slice.
 func readSlice[T any](data []byte, count uint64, size int, decode func([]byte) T) ([]T, error) {
 	totalSize := int(count) * size
 	if totalSize > len(data) {
@@ -422,8 +412,6 @@ func anySlice[T any](s []T, err error) (interface{}, error) {
 	return s, nil
 }
 
-// fixedCodec builds the codec for a fixed-size type whose scalar and array
-// element decode identically.
 func fixedCodec[T any](size int, decode func([]byte) T) codec {
 	return codec{
 		scalar: func(_ *decoder, data []byte) (interface{}, error) {
@@ -444,9 +432,6 @@ var stringCodec = codec{
 	},
 }
 
-// refCodec builds the codec for row reference types. Array elements are
-// decoded as uint32 at the type's stride, but foreign/enum row arrays
-// reserve 16 bytes per element for bounds checking.
 func refCodec(ft FieldType) codec {
 	return codec{
 		scalar: func(_ *decoder, data []byte) (interface{}, error) {

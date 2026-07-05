@@ -8,7 +8,6 @@ import (
 	"time"
 )
 
-// Stats accumulates the outcome of one extraction run.
 type Stats struct {
 	StartTime        time.Time
 	EndTime          time.Time
@@ -22,7 +21,6 @@ type Stats struct {
 	processingStart time.Time
 }
 
-// Report writes the human-readable run summary.
 func (s *Stats) Report(w io.Writer) {
 	totalDuration := s.EndTime.Sub(s.StartTime)
 	processingDuration := s.EndTime.Sub(s.processingStart)
@@ -52,7 +50,6 @@ func (s *Stats) Report(w io.Writer) {
 	fmt.Fprintf(w, "Memory usage: %.2fmb\n", totalMemoryMB)
 }
 
-// formatNumber formats large numbers with commas for readability.
 func formatNumber(n int64) string {
 	str := fmt.Sprintf("%d", n)
 	if len(str) <= 3 {
@@ -69,7 +66,6 @@ func formatNumber(n int64) string {
 	return strings.Join(result, "")
 }
 
-// formatRate formats insertion rates with unit suffixes.
 func formatRate(rate float64) string {
 	if rate < 1000 {
 		return fmt.Sprintf("%.2f", rate)

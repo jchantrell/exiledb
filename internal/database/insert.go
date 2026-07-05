@@ -12,26 +12,22 @@ import (
 	"github.com/jchantrell/exiledb/internal/dat"
 )
 
-// BulkInserter handles efficient batch insertion of DAT file data
 type BulkInserter struct {
 	db        *Database
 	batchSize int
 }
 
-// BulkInsertOptions configures bulk insertion behavior
 type BulkInsertOptions struct {
 	// BatchSize determines how many rows to insert between progress reports
 	BatchSize int
 }
 
-// DefaultBulkInsertOptions returns sensible defaults for bulk insertion
 func DefaultBulkInsertOptions() *BulkInsertOptions {
 	return &BulkInsertOptions{
 		BatchSize: 1000,
 	}
 }
 
-// NewBulkInserter creates a new bulk inserter with the given database and options
 func NewBulkInserter(db *Database, options *BulkInsertOptions) *BulkInserter {
 	if options == nil {
 		options = DefaultBulkInsertOptions()
@@ -43,40 +39,31 @@ func NewBulkInserter(db *Database, options *BulkInsertOptions) *BulkInserter {
 	}
 }
 
-// TableData represents parsed data for a single table
 type TableData struct {
-	// Schema is the table schema from the community schema
 	Schema *dat.TableSchema
 
-	// Rows contains the parsed row data
 	Rows []RowData
 
-	// Metadata about the data
 	Language string
 }
 
-// RowData represents a single row of data with column values
 type RowData struct {
 	Index  int            // Row index from DAT file
 	Values map[string]any // Column name -> value mapping
 }
 
-// colBinding binds one SQL column to its parser field and value conversion.
 type colBinding struct {
 	sqlName string
 	field   string                 // parser field name ("Unknown3" or *col.Name)
 	process func(any) (any, error) // bound per column type/references at plan time
 }
 
-// junctionBinding binds one foreign key array column to its junction table.
 type junctionBinding struct {
 	sqlName   string
 	field     string // parser field name
 	insertSQL string
 }
 
-// insertPlan is the schema-to-SQL mapping for one table, computed once per
-// table instead of being re-derived per column per row.
 type insertPlan struct {
 	tableName string
 	insertSQL string
@@ -84,8 +71,6 @@ type insertPlan struct {
 	junctions []junctionBinding
 }
 
-// buildInsertPlan derives the insert statement and column bindings for a
-// table from the same table plan that DDL generation uses.
 func buildInsertPlan(schema *dat.TableSchema) (*insertPlan, error) {
 	plan, err := newTablePlan(schema)
 	if err != nil {
@@ -131,7 +116,6 @@ func buildInsertPlan(schema *dat.TableSchema) (*insertPlan, error) {
 	}, nil
 }
 
-// valueProcessor selects the value conversion for a column at plan time.
 func valueProcessor(column *dat.TableColumn) func(any) (any, error) {
 	switch {
 	case column.Array && column.References == nil:
@@ -146,8 +130,6 @@ func valueProcessor(column *dat.TableColumn) func(any) (any, error) {
 	}
 }
 
-// InsertTableData loads a table in a single transaction with statements
-// prepared once up front; a mid-table failure rolls the whole table back.
 func (bi *BulkInserter) InsertTableData(ctx context.Context, tableData *TableData) error {
 	if tableData == nil {
 		return fmt.Errorf("table data cannot be nil")
@@ -207,8 +189,6 @@ func (bi *BulkInserter) InsertTableData(ctx context.Context, tableData *TableDat
 	return nil
 }
 
-// insertRow binds one row's values against the plan and executes the main
-// insert plus any junction table inserts.
 func insertRow(ctx context.Context, plan *insertPlan, stmt *sql.Stmt, junctionStmts []*sql.Stmt, tableData *TableData, row *RowData) error {
 	values := make([]any, 0, len(plan.cols)+2)
 	values = append(values, row.Index, tableData.Language)
@@ -240,8 +220,6 @@ func insertRow(ctx context.Context, plan *insertPlan, stmt *sql.Stmt, junctionSt
 	return nil
 }
 
-// insertJunctionRows inserts one row's array elements into a junction table,
-// dropping null references while preserving array indices.
 func insertJunctionRows(ctx context.Context, stmt *sql.Stmt, junction *junctionBinding, tableData *TableData, row *RowData) error {
 	value, exists := row.Values[junction.field]
 	if !exists {
@@ -271,7 +249,6 @@ func insertJunctionRows(ctx context.Context, stmt *sql.Stmt, junction *junctionB
 	return nil
 }
 
-// processArrayValue serializes a simple (non foreign key) array as JSON text.
 func processArrayValue(value any) (any, error) {
 	jsonBytes, err := json.Marshal(value)
 	if err != nil {
@@ -294,13 +271,10 @@ func processReferenceValue(value any) (any, error) {
 		return int64(v), nil
 	}
 
-	// Pass through other types
 	return value, nil
 }
 
-// processScalarValue handles basic scalar value processing
 func processScalarValue(value any, fieldType dat.FieldType) (any, error) {
-	// Handle boolean conversion to integer
 	if fieldType == dat.TypeBool {
 		if boolVal, ok := value.(bool); ok {
 			if boolVal {
@@ -310,10 +284,8 @@ func processScalarValue(value any, fieldType dat.FieldType) (any, error) {
 		}
 	}
 
-	// Convert numeric types to appropriate SQLite types
 	switch fieldType {
 	case dat.TypeInt16, dat.TypeInt32, dat.TypeInt64:
-		// Convert to int64 for SQLite INTEGER
 		switch v := value.(type) {
 		case int16:
 			return int64(v), nil
@@ -323,7 +295,6 @@ func processScalarValue(value any, fieldType dat.FieldType) (any, error) {
 			return v, nil
 		}
 	case dat.TypeUint16, dat.TypeUint32, dat.TypeUint64:
-		// Convert unsigned to signed for SQLite
 		switch v := value.(type) {
 		case uint16:
 			return int64(v), nil
@@ -333,7 +304,6 @@ func processScalarValue(value any, fieldType dat.FieldType) (any, error) {
 			return int64(v), nil
 		}
 	case dat.TypeFloat32, dat.TypeFloat64:
-		// Convert to float64 for SQLite REAL
 		switch v := value.(type) {
 		case float32:
 			return float64(v), nil
@@ -342,13 +312,9 @@ func processScalarValue(value any, fieldType dat.FieldType) (any, error) {
 		}
 	}
 
-	// Pass through strings and other types as-is
 	return value, nil
 }
 
-// convertToSlice converts a typed slice to []any, dereferencing pointer
-// elements. Nil pointers stay nil so callers can drop them while preserving
-// the original array indices.
 func convertToSlice(value any) ([]any, error) {
 	rv := reflect.ValueOf(value)
 	if rv.Kind() != reflect.Slice {

@@ -1,5 +1,3 @@
-// Package extract implements the extraction pipeline: resolve a bundle
-// source, pull the requested tables into SQLite, and export requested files.
 package extract
 
 import (
@@ -23,13 +21,9 @@ import (
 	"github.com/jchantrell/exiledb/internal/poe"
 )
 
-// Options carries per-invocation settings that are not part of the config.
 type Options struct {
-	// ForceDownload re-downloads bundles even when cached.
 	ForceDownload bool
 
-	// Progress returns a reporter for one phase of work; nil disables
-	// progress reporting entirely.
 	Progress func() func(done, total int, label string)
 }
 
@@ -85,24 +79,18 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) (*Stats, error) 
 
 	stats.EndTime = time.Now()
 
-	// Per-table failures don't abort the run, but they must fail the exit
-	// code: downstream consumers treat exit 0 as a complete database.
 	if n := stats.ProcessingErrors + stats.DatabaseErrors; n > 0 {
 		return stats, fmt.Errorf("extraction completed with %d table errors", n)
 	}
 	return stats, nil
 }
 
-// source is a resolved bundle source plus the CDN context needed to download
-// bundles into it; cache is nil for GGPK sources, which already hold all data.
 type source struct {
 	bundleSource bundle.BundleSource
 	cache        *cache.Cache
 	gameVersion  int
 }
 
-// resolveSource opens the configured bundle source: a local GGPK archive, or
-// the CDN cache with a freshly downloaded index.
 func resolveSource(ctx context.Context, cfg *config.Config, force bool) (*source, error) {
 	if cfg.GgpkPath != "" {
 		slog.Info("Using GGPK file", "path", cfg.GgpkPath)
@@ -134,8 +122,6 @@ func resolveSource(ctx context.Context, cfg *config.Config, force bool) (*source
 	}, nil
 }
 
-// LoadIndex loads the bundle index for the configured source without
-// downloading any bundles. Used by commands that only inspect the index.
 func LoadIndex(ctx context.Context, cfg *config.Config) (*bundle.Index, error) {
 	src, err := resolveSource(ctx, cfg, false)
 	if err != nil {
@@ -155,9 +141,6 @@ func LoadIndex(ctx context.Context, cfg *config.Config) (*bundle.Index, error) {
 	return index, nil
 }
 
-// openSource resolves the bundle manager for the configured source,
-// downloading whatever bundles the requested tables/files need when reading
-// from the CDN. Returns (nil, nil) when no bundles are required.
 func openSource(ctx context.Context, cfg *config.Config, opts Options) (*bundle.BundleManager, error) {
 	src, err := resolveSource(ctx, cfg, opts.ForceDownload)
 	if err != nil {
@@ -204,9 +187,6 @@ func openSource(ctx context.Context, cfg *config.Config, opts Options) (*bundle.
 	return manager, nil
 }
 
-// loadCommunitySchema fetches the latest community schema into the cache and
-// parses it. Always downloads fresh: the schema is frequently updated with
-// fixes and a stale copy silently misparses tables.
 func loadCommunitySchema(ctx context.Context) (*dat.CommunitySchema, error) {
 	c, err := cache.New()
 	if err != nil {
@@ -228,8 +208,6 @@ func loadCommunitySchema(ctx context.Context) (*dat.CommunitySchema, error) {
 	return dat.ParseCommunitySchema(file)
 }
 
-// insertTables creates schemas for the requested tables and loads every
-// requested language of each table into the database.
 func insertTables(ctx context.Context, cfg *config.Config, db *database.Database, manager *bundle.BundleManager, opts Options, stats *Stats) error {
 	schema, err := loadCommunitySchema(ctx)
 	if err != nil {
@@ -324,8 +302,6 @@ func insertTables(ctx context.Context, cfg *config.Config, db *database.Database
 	return nil
 }
 
-// reportForeignKeys surfaces referential problems after the load; FK
-// constraints are documentation-only and never enforced during insertion.
 func reportForeignKeys(ctx context.Context, db *database.Database) {
 	violations, err := db.CheckForeignKeys(ctx)
 	if err != nil {
@@ -344,9 +320,6 @@ func reportForeignKeys(ctx context.Context, db *database.Database) {
 	}
 }
 
-// exportFiles writes the requested files to ./files. Export failures are
-// reported but do not abort the run; the stats reflect what was actually
-// exported.
 func exportFiles(ctx context.Context, cfg *config.Config, manager *bundle.BundleManager, opts Options, stats *Stats) error {
 	expandedFiles := manager.SortByBundle(manager.ExpandFilePaths(cfg.Files))
 	slog.Info("Exporting files", "requested", len(cfg.Files), "resolved", len(expandedFiles))
@@ -361,8 +334,6 @@ func exportFiles(ctx context.Context, cfg *config.Config, manager *bundle.Bundle
 	return nil
 }
 
-// filterTables narrows the valid tables to the configured set, matching on
-// the snake_case form so users can spell names either way.
 func filterTables(validTables []dat.TableSchema, configuredTables []string) []dat.TableSchema {
 	if len(configuredTables) == 0 {
 		return validTables

@@ -1,6 +1,3 @@
-// Package cdn provides functionality for downloading Path of Exile game bundles from CDN servers.
-// It handles URL construction, index file downloads, and bundle downloads with progress tracking
-// for both single and multiple bundle operations.
 package cdn
 
 import (
@@ -21,7 +18,6 @@ const (
 	PoE1CDNURL = "https://patch.poecdn.com"
 	PoE2CDNURL = "https://patch-poe2.poecdn.com"
 
-	// downloadConcurrency bounds parallel bundle downloads.
 	downloadConcurrency = 6
 )
 
@@ -58,8 +54,6 @@ func DownloadIndex(ctx context.Context, cache *cache.Cache, patch string, gameVe
 	return nil
 }
 
-// ProgressFunc reports download progress: done of total, plus the bundle
-// currently being downloaded. A nil ProgressFunc disables reporting.
 type ProgressFunc func(done, total int, description string)
 
 func DownloadBundles(ctx context.Context, cache *cache.Cache, patch string, gameVersion int, bundleNames []string, force bool, progress ProgressFunc) error {

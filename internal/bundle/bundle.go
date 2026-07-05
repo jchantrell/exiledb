@@ -16,7 +16,6 @@ type bundle struct {
 	blocks      []bundleBlock
 }
 
-// descriptions of compressed blocks relative to bundle.data
 type bundleBlock struct {
 	offset int64
 	length int64
@@ -70,7 +69,6 @@ func OpenBundle(r io.ReaderAt) (*bundle, error) {
 		blocks:      blocks,
 	}
 
-	// do a quick sanity check here
 	if b.granularity == 0 {
 		return nil, fmt.Errorf("granularity is 0?!")
 	}
@@ -96,10 +94,6 @@ func (b *bundle) Size() int64 {
 	return b.size
 }
 
-// Decompress decompresses a complete in-memory bundle-compressed stream.
-// It is the single owner of the bundle wire format; other packages that
-// encounter embedded bundle payloads (e.g. .ast files) must use it rather
-// than reimplementing the header parsing.
 func Decompress(data []byte) ([]byte, error) {
 	b, err := OpenBundle(bytes.NewReader(data))
 	if err != nil {
