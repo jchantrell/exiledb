@@ -34,8 +34,15 @@ https://snosme.github.io/poe-dat-viewer/
 ./exiledb manifest --patch 4.4.0.13 > 4.4.0.13.txt
 grep waystone 4.4.0.13.txt
 
+# Append uncompressed byte counts to each path (tab-separated)
+./exiledb manifest --patch 4.4.0.13 --sizes > 4.4.0.13-sizes.txt
+
 # Diff manifests to see what changed between game versions
 diff 4.4.0.12.txt 4.4.0.13.txt
+
+# Or skip all of the above: manifests, added/removed file lists and dat file
+# diffs are published for every patch under the data-poe1-* / data-poe2-* releases
+https://github.com/jchantrell/exiledb/releases
 
 # Download bundles and extract data to DB
 ./exiledb extract --patch 4.4.0.13 --tables BaseItemTypes,Mods
