@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/jchantrell/exiledb/internal/dat"
-	"github.com/jchantrell/exiledb/internal/poe"
 )
 
 // SchemaProgressCallback is called during schema creation to report progress
@@ -23,192 +22,54 @@ func NewDDLManager(db *Database) *DDLManager {
 	return &DDLManager{db: db}
 }
 
-// columnNames is the single owner of the schema column naming convention:
-// unnamed columns become "unknownN" in SQL and "UnknownN" in parsed row data,
-// named columns use the snake_cased schema name in SQL and the schema name as
-// the parser field. Both DDL generation and the insert plan derive names here.
-func columnNames(col *dat.TableColumn, i int) (sqlName, fieldName string) {
-	if col.Name == nil {
-		return fmt.Sprintf("unknown%d", i), fmt.Sprintf("Unknown%d", i)
+// generateTableDDL renders the CREATE TABLE statement for a plan's main
+// table: standard columns, schema columns in plan order, the primary key,
+// then any scalar foreign key clauses.
+func generateTableDDL(plan *tablePlan) string {
+	columns := []string{
+		colIndex + " INTEGER",
+		colLanguage + " TEXT NOT NULL",
 	}
-	return poe.ToSnakeCase(*col.Name), *col.Name
-}
-
-// GenerateTableDDL generates CREATE TABLE SQL for a given table schema
-func (dm *DDLManager) GenerateTableDDL(table *dat.TableSchema) (string, error) {
-	if table == nil {
-		return "", fmt.Errorf("table schema cannot be nil")
-	}
-
-	if table.Name == "" {
-		return "", fmt.Errorf("table name cannot be empty")
-	}
-
-	tableName := poe.ToSnakeCase(table.Name)
-	if err := validateIdentifier(tableName); err != nil {
-		return "", fmt.Errorf("table %s: %w", table.Name, err)
-	}
-
-	var columns []string
 	var foreignKeys []string
 
-	// Add standard columns first
-	columns = append(columns, "_index INTEGER")
-	columns = append(columns, "_language TEXT NOT NULL")
+	for _, col := range plan.columns {
+		columns = append(columns, fmt.Sprintf("%s %s", quoteSQLIdentifier(col.sqlName), col.sqlType))
 
-	// Add schema-defined columns
-	for i, column := range table.Columns {
-		columnName, _ := columnNames(&column, i)
-		if err := validateIdentifier(columnName); err != nil {
-			return "", fmt.Errorf("table %s column %d: %w", table.Name, i, err)
-		}
-
-		columnDDL, fkDDL, err := dm.generateColumnDDL(&column, columnName)
-		if err != nil {
-			return "", fmt.Errorf("generating column %d (%s): %w", i, columnName, err)
-		}
-
-		// Only add non-empty column DDL (foreign key arrays return empty DDL)
-		if columnDDL != "" {
-			columns = append(columns, columnDDL)
-		}
-
-		if fkDDL != "" {
-			foreignKeys = append(foreignKeys, fkDDL)
+		// Foreign keys in ExileDB include the language dimension
+		if col.refTable != "" {
+			foreignKeys = append(foreignKeys, fmt.Sprintf("FOREIGN KEY (%s, %s) REFERENCES %s(%s, %s)",
+				colLanguage, quoteSQLIdentifier(col.sqlName),
+				quoteSQLIdentifier(col.refTable), colLanguage, quoteSQLIdentifier(col.refColumn)))
 		}
 	}
 
-	// Add primary key
-	columns = append(columns, "PRIMARY KEY (_language, _index)")
-
-	// Add foreign key constraints
+	columns = append(columns, fmt.Sprintf("PRIMARY KEY (%s, %s)", colLanguage, colIndex))
 	columns = append(columns, foreignKeys...)
 
-	// Build the CREATE TABLE statement
-	ddl := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (\n    %s\n)",
-		quoteSQLIdentifier(tableName),
+	return fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (\n    %s\n)",
+		quoteSQLIdentifier(plan.sqlName),
 		strings.Join(columns, ",\n    "))
-
-	return ddl, nil
 }
 
-// generateColumnDDL generates the DDL for a single column with version-aware foreign key handling
-func (dm *DDLManager) generateColumnDDL(column *dat.TableColumn, columnName string) (string, string, error) {
-	if column.Array {
-		// Array columns are stored as JSON text unless they have foreign key references
-		if column.References != nil {
-			// This is a foreign key array - we'll store this info for junction table generation
-			// Return empty column DDL as the data will be stored in junction table
-			return "", "", nil
-		} else {
-			// Simple array stored as JSON
-			return fmt.Sprintf("%s TEXT", quoteSQLIdentifier(columnName)), "", nil
-		}
-	}
-
-	// Generate the base column definition
-	baseType, err := dm.mapDATTypeToSQL(column.Type)
-	if err != nil {
-		return "", "", fmt.Errorf("mapping type %s: %w", column.Type, err)
-	}
-
-	columnDDL := fmt.Sprintf("%s %s", quoteSQLIdentifier(columnName), baseType)
-
-	// Generate foreign key constraint if this column references another table
-	var foreignKeyDDL string
-	if column.References != nil && !column.Array {
-		fkDDL, err := dm.generateForeignKeyDDL(columnName, column.References)
-		if err != nil {
-			return "", "", err
-		}
-		foreignKeyDDL = fkDDL
-	}
-
-	return columnDDL, foreignKeyDDL, nil
-}
-
-// mapDATTypeToSQL maps DAT field types to SQLite types
-func (dm *DDLManager) mapDATTypeToSQL(fieldType dat.FieldType) (string, error) {
-	switch fieldType {
-	case dat.TypeBool:
-		return "INTEGER", nil // SQLite stores booleans as integers
-	case dat.TypeString:
-		return "TEXT", nil
-	case dat.TypeInt16, dat.TypeInt32, dat.TypeInt64:
-		return "INTEGER", nil
-	case dat.TypeUint16, dat.TypeUint32, dat.TypeUint64:
-		return "INTEGER", nil
-	case dat.TypeFloat32, dat.TypeFloat64:
-		return "REAL", nil
-	case dat.TypeRow, dat.TypeForeignRow, dat.TypeEnumRow:
-		return "INTEGER", nil // Row references are integer indices
-	case dat.TypeArray:
-		return "TEXT", nil // Arrays stored as JSON text
-	default:
-		return "", fmt.Errorf("unsupported field type: %s", fieldType)
-	}
-}
-
-// generateForeignKeyDDL generates a foreign key constraint with version-aware table names
-func (dm *DDLManager) generateForeignKeyDDL(columnName string, ref *dat.ColumnReference) (string, error) {
-	if ref == nil {
-		return "", fmt.Errorf("nil reference")
-	}
-
-	if ref.Table == "" {
-		return "", fmt.Errorf("empty table")
-	}
-
-	// Generate unified referenced table name
-	referencedTable := poe.ToSnakeCase(ref.Table)
-	referencedColumn := "_index" // Default to _index column
-
-	if ref.Column != nil && *ref.Column != "" {
-		referencedColumn = poe.ToSnakeCase(*ref.Column)
-	}
-
-	// Foreign keys in ExileDB include the language dimension
-	fkDDL := fmt.Sprintf("FOREIGN KEY (_language, %s) REFERENCES %s(_language, %s)",
-		quoteSQLIdentifier(columnName), quoteSQLIdentifier(referencedTable), quoteSQLIdentifier(referencedColumn))
-
-	return fkDDL, nil
-}
-
-// generateJunctionTableDDL generates CREATE TABLE SQL for a junction table with version-aware table names
-func (dm *DDLManager) generateJunctionTableDDL(tableName, columnName string, ref *dat.ColumnReference) (string, error) {
-	if ref == nil {
-		return "", fmt.Errorf("nil reference")
-	}
-
-	if ref.Table == "" {
-		return "", fmt.Errorf("empty table")
-	}
-
-	// Generate junction table name: {main_table}_{column}_junction
-	junctionTableName := fmt.Sprintf("%s_%s_junction", tableName, columnName)
-
-	// Generate unified referenced table name
-	referencedTable := poe.ToSnakeCase(ref.Table)
-	referencedColumn := "_index" // Default to _index column
-
-	if ref.Column != nil && *ref.Column != "" {
-		referencedColumn = poe.ToSnakeCase(*ref.Column)
-	}
-
-	// Build junction table DDL with composite foreign key pattern
-	ddl := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
-    _language TEXT NOT NULL,
-    _parent_index INTEGER NOT NULL,
-    _array_index INTEGER NOT NULL,
-    value INTEGER,
-    FOREIGN KEY (_language, _parent_index) 
-      REFERENCES %s(_language, _index),
-    FOREIGN KEY (_language, value) 
-      REFERENCES %s(_language, %s),
-    UNIQUE(_language, _parent_index, _array_index)
-)`, quoteSQLIdentifier(junctionTableName), quoteSQLIdentifier(tableName), quoteSQLIdentifier(referencedTable), quoteSQLIdentifier(referencedColumn))
-
-	return ddl, nil
+// generateJunctionTableDDL renders the CREATE TABLE statement for a foreign
+// key array's junction table, with composite foreign keys back to the parent
+// row and out to the referenced table.
+func generateJunctionTableDDL(plan *tablePlan, junction *planJunction) string {
+	return fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %[1]s (
+    %[2]s TEXT NOT NULL,
+    %[3]s INTEGER NOT NULL,
+    %[4]s INTEGER NOT NULL,
+    %[5]s INTEGER,
+    FOREIGN KEY (%[2]s, %[3]s)
+      REFERENCES %[6]s(%[2]s, %[7]s),
+    FOREIGN KEY (%[2]s, %[5]s)
+      REFERENCES %[8]s(%[2]s, %[9]s),
+    UNIQUE(%[2]s, %[3]s, %[4]s)
+)`,
+		quoteSQLIdentifier(junction.tableName),
+		colLanguage, colParentIndex, colArrayIndex, colValue,
+		quoteSQLIdentifier(plan.sqlName), colIndex,
+		quoteSQLIdentifier(junction.refTable), quoteSQLIdentifier(junction.refColumn))
 }
 
 // DDLRequest represents a request to execute a generated DDL statement
@@ -256,36 +117,24 @@ func (dm *DDLManager) generateAllDDL(tables []dat.TableSchema) ([]DDLRequest, []
 // generateTableDDLRequests generates the main table request and any junction
 // table requests for a single table
 func (dm *DDLManager) generateTableDDLRequests(table dat.TableSchema) (DDLRequest, []DDLRequest, error) {
-	tableName := poe.ToSnakeCase(table.Name)
-
-	tableDDL, err := dm.GenerateTableDDL(&table)
+	plan, err := newTablePlan(&table)
 	if err != nil {
 		return DDLRequest{}, nil, fmt.Errorf("generating table DDL: %w", err)
 	}
 
 	main := DDLRequest{
-		DDL:         tableDDL,
-		TableName:   tableName,
-		Description: table.Name,
+		DDL:         generateTableDDL(plan),
+		TableName:   plan.sqlName,
+		Description: plan.schemaName,
 	}
 
-	var junctions []DDLRequest
-	for i := range table.Columns {
-		column := &table.Columns[i]
-		if column.Name == nil || !column.Array || column.References == nil {
-			continue
-		}
-
-		columnName, _ := columnNames(column, i)
-		junctionDDL, err := dm.generateJunctionTableDDL(tableName, columnName, column.References)
-		if err != nil {
-			return DDLRequest{}, nil, err
-		}
-
+	junctions := make([]DDLRequest, 0, len(plan.junctions))
+	for i := range plan.junctions {
+		junction := &plan.junctions[i]
 		junctions = append(junctions, DDLRequest{
-			DDL:         junctionDDL,
-			TableName:   fmt.Sprintf("%s_%s_junction", tableName, columnName),
-			Description: fmt.Sprintf("%s.%s", table.Name, *column.Name),
+			DDL:         generateJunctionTableDDL(plan, junction),
+			TableName:   junction.tableName,
+			Description: fmt.Sprintf("%s.%s", plan.schemaName, junction.field),
 		})
 	}
 

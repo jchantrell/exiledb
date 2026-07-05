@@ -192,7 +192,7 @@ func (d *decoder) parseRow(index int, rowData []byte, schema *TableSchema) Parse
 	offset := 0
 
 	for i, column := range schema.Columns {
-		name := fieldName(&column, i)
+		name := FieldName(&column, i)
 		size := fieldSize(&column)
 
 		if offset >= len(rowData) {
@@ -223,7 +223,9 @@ func (d *decoder) parseRow(index int, rowData []byte, schema *TableSchema) Parse
 	}
 }
 
-func fieldName(column *TableColumn, index int) string {
+// FieldName is the parsed-row field key for a schema column: the schema name
+// when present, otherwise "UnknownN" by column index.
+func FieldName(column *TableColumn, index int) string {
 	if column.Name == nil {
 		return "Unknown" + strconv.Itoa(index)
 	}

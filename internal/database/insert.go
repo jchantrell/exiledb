@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/jchantrell/exiledb/internal/dat"
-	"github.com/jchantrell/exiledb/internal/poe"
 )
 
 // BulkInserter handles efficient batch insertion of DAT file data
@@ -79,61 +78,57 @@ type junctionBinding struct {
 // insertPlan is the schema-to-SQL mapping for one table, computed once per
 // table instead of being re-derived per column per row.
 type insertPlan struct {
+	tableName string
 	insertSQL string
 	cols      []colBinding
 	junctions []junctionBinding
 }
 
-// buildInsertPlan derives the insert statement and column bindings for a table.
-func buildInsertPlan(schema *dat.TableSchema) *insertPlan {
-	tableName := poe.ToSnakeCase(schema.Name)
+// buildInsertPlan derives the insert statement and column bindings for a
+// table from the same table plan that DDL generation uses.
+func buildInsertPlan(schema *dat.TableSchema) (*insertPlan, error) {
+	plan, err := newTablePlan(schema)
+	if err != nil {
+		return nil, err
+	}
 
-	quotedColumns := []string{quoteSQLIdentifier("_index"), quoteSQLIdentifier("_language")}
+	quotedColumns := []string{quoteSQLIdentifier(colIndex), quoteSQLIdentifier(colLanguage)}
 	placeholders := []string{"?", "?"}
 
-	var cols []colBinding
-	var junctions []junctionBinding
-
-	for i := range schema.Columns {
-		column := &schema.Columns[i]
-		sqlName, fieldName := columnNames(column, i)
-
-		// Foreign key arrays go to junction tables, not the main table.
-		// Unnamed ones have no junction table either and are dropped entirely.
-		if column.Array && column.References != nil {
-			if column.Name == nil {
-				continue
-			}
-			junctions = append(junctions, junctionBinding{
-				sqlName: sqlName,
-				field:   fieldName,
-				insertSQL: fmt.Sprintf("INSERT INTO %s (%s, %s, %s, %s) VALUES (?, ?, ?, ?)",
-					quoteSQLIdentifier(fmt.Sprintf("%s_%s_junction", tableName, sqlName)),
-					quoteSQLIdentifier("_language"),
-					quoteSQLIdentifier("_parent_index"),
-					quoteSQLIdentifier("_array_index"),
-					quoteSQLIdentifier("value")),
-			})
-			continue
-		}
-
+	cols := make([]colBinding, 0, len(plan.columns))
+	for _, col := range plan.columns {
 		cols = append(cols, colBinding{
-			sqlName: sqlName,
-			field:   fieldName,
-			process: valueProcessor(column),
+			sqlName: col.sqlName,
+			field:   col.field,
+			process: valueProcessor(col.column),
 		})
-		quotedColumns = append(quotedColumns, quoteSQLIdentifier(sqlName))
+		quotedColumns = append(quotedColumns, quoteSQLIdentifier(col.sqlName))
 		placeholders = append(placeholders, "?")
 	}
 
+	junctions := make([]junctionBinding, 0, len(plan.junctions))
+	for _, junction := range plan.junctions {
+		junctions = append(junctions, junctionBinding{
+			sqlName: junction.sqlName,
+			field:   junction.field,
+			insertSQL: fmt.Sprintf("INSERT INTO %s (%s, %s, %s, %s) VALUES (?, ?, ?, ?)",
+				quoteSQLIdentifier(junction.tableName),
+				quoteSQLIdentifier(colLanguage),
+				quoteSQLIdentifier(colParentIndex),
+				quoteSQLIdentifier(colArrayIndex),
+				quoteSQLIdentifier(colValue)),
+		})
+	}
+
 	return &insertPlan{
+		tableName: plan.sqlName,
 		insertSQL: fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)",
-			quoteSQLIdentifier(tableName),
+			quoteSQLIdentifier(plan.sqlName),
 			strings.Join(quotedColumns, ", "),
 			strings.Join(placeholders, ", ")),
 		cols:      cols,
 		junctions: junctions,
-	}
+	}, nil
 }
 
 // valueProcessor selects the value conversion for a column at plan time.
@@ -167,8 +162,11 @@ func (bi *BulkInserter) InsertTableData(ctx context.Context, tableData *TableDat
 		return nil
 	}
 
-	tableName := poe.ToSnakeCase(tableData.Schema.Name)
-	plan := buildInsertPlan(tableData.Schema)
+	plan, err := buildInsertPlan(tableData.Schema)
+	if err != nil {
+		return fmt.Errorf("planning insert for %s: %w", tableData.Schema.Name, err)
+	}
+	tableName := plan.tableName
 
 	tx, err := bi.db.BeginTx(ctx, nil)
 	if err != nil {
