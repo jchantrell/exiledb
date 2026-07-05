@@ -1,10 +1,9 @@
 package bundle
 
 import (
-	"errors"
 	"fmt"
+	"io"
 	"os"
-	"sync"
 
 	"github.com/jchantrell/exiledb/internal/cache"
 	"github.com/jchantrell/exiledb/internal/ggpk"
@@ -12,72 +11,31 @@ import (
 
 type BundleSource interface {
 	ReadIndex() ([]byte, error)
-	ReadFileFromBundle(bundleName string, offset, size uint32) ([]byte, error)
+	OpenBundle(name string) (io.ReaderAt, io.Closer, error)
 	IndexCachePath() string
 	Close() error
 }
 
 type CacheSource struct {
-	patch       string
-	cache       *cache.Cache
-	mu          sync.Mutex
-	bundleCache map[string]*cachedBundle
-}
-
-type cachedBundle struct {
-	bundle *bundle
-	file   *os.File
+	patch string
+	cache *cache.Cache
 }
 
 func NewCacheSource(c *cache.Cache, patch string) *CacheSource {
-	return &CacheSource{
-		patch:       patch,
-		cache:       c,
-		bundleCache: make(map[string]*cachedBundle),
-	}
+	return &CacheSource{patch: patch, cache: c}
 }
 
 func (s *CacheSource) ReadIndex() ([]byte, error) {
 	return os.ReadFile(s.cache.IndexPath(s.patch))
 }
 
-func (s *CacheSource) getBundle(bundleName string) (*bundle, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if cached, ok := s.bundleCache[bundleName]; ok {
-		return cached.bundle, nil
-	}
-
-	bundlePath := s.cache.BundlePath(s.patch, bundleName)
-
-	bundleFile, err := os.Open(bundlePath)
+func (s *CacheSource) OpenBundle(name string) (io.ReaderAt, io.Closer, error) {
+	bundlePath := s.cache.BundlePath(s.patch, name)
+	f, err := os.Open(bundlePath)
 	if err != nil {
-		return nil, fmt.Errorf("opening bundle file %s: %w", bundlePath, err)
+		return nil, nil, fmt.Errorf("opening bundle file %s: %w", bundlePath, err)
 	}
-
-	b, err := OpenBundle(bundleFile)
-	if err != nil {
-		bundleFile.Close()
-		return nil, fmt.Errorf("opening bundle %s: %w", bundleName, err)
-	}
-
-	s.bundleCache[bundleName] = &cachedBundle{bundle: b, file: bundleFile}
-	return b, nil
-}
-
-func (s *CacheSource) ReadFileFromBundle(bundleName string, offset, size uint32) ([]byte, error) {
-	b, err := s.getBundle(bundleName)
-	if err != nil {
-		return nil, err
-	}
-
-	data := make([]byte, size)
-	if _, err := b.ReadAt(data, int64(offset)); err != nil {
-		return nil, fmt.Errorf("reading from bundle (offset=%d, size=%d): %w", offset, size, err)
-	}
-
-	return data, nil
+	return f, f, nil
 }
 
 func (s *CacheSource) IndexCachePath() string {
@@ -85,23 +43,12 @@ func (s *CacheSource) IndexCachePath() string {
 }
 
 func (s *CacheSource) Close() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	var errs []error
-	for name, cached := range s.bundleCache {
-		if err := cached.file.Close(); err != nil {
-			errs = append(errs, fmt.Errorf("closing bundle %s: %w", name, err))
-		}
-	}
-	s.bundleCache = nil
-	return errors.Join(errs...)
+	return nil
 }
 
 type GgpkSource struct {
-	reader      *ggpk.Reader
-	ggpkPath    string
-	mu          sync.Mutex
-	bundleCache map[string]*bundle
+	reader   *ggpk.Reader
+	ggpkPath string
 }
 
 func NewGgpkSource(ggpkPath string) (*GgpkSource, error) {
@@ -109,11 +56,7 @@ func NewGgpkSource(ggpkPath string) (*GgpkSource, error) {
 	if err != nil {
 		return nil, fmt.Errorf("opening GGPK file: %w", err)
 	}
-	return &GgpkSource{reader: r, ggpkPath: ggpkPath, bundleCache: make(map[string]*bundle)}, nil
-}
-
-func (s *GgpkSource) IndexCachePath() string {
-	return s.ggpkPath + ".idx"
+	return &GgpkSource{reader: r, ggpkPath: ggpkPath}, nil
 }
 
 func (s *GgpkSource) ReadIndex() ([]byte, error) {
@@ -124,42 +67,17 @@ func (s *GgpkSource) ReadIndex() ([]byte, error) {
 	return s.reader.ReadFileData(rec)
 }
 
-func (s *GgpkSource) getBundle(bundleName string) (*bundle, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if cached, ok := s.bundleCache[bundleName]; ok {
-		return cached, nil
-	}
-
-	path := "Bundles2/" + bundleName + ".bundle.bin"
+func (s *GgpkSource) OpenBundle(name string) (io.ReaderAt, io.Closer, error) {
+	path := "Bundles2/" + name + ".bundle.bin"
 	rec, err := s.reader.FindFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("finding bundle %s in GGPK: %w", bundleName, err)
+		return nil, nil, fmt.Errorf("finding bundle %s in GGPK: %w", name, err)
 	}
-
-	bundleReader := s.reader.FileReaderAt(rec)
-	b, err := OpenBundle(bundleReader)
-	if err != nil {
-		return nil, fmt.Errorf("opening bundle %s from GGPK: %w", bundleName, err)
-	}
-
-	s.bundleCache[bundleName] = b
-	return b, nil
+	return s.reader.FileReaderAt(rec), nil, nil
 }
 
-func (s *GgpkSource) ReadFileFromBundle(bundleName string, offset, size uint32) ([]byte, error) {
-	b, err := s.getBundle(bundleName)
-	if err != nil {
-		return nil, err
-	}
-
-	data := make([]byte, size)
-	if _, err := b.ReadAt(data, int64(offset)); err != nil {
-		return nil, fmt.Errorf("reading from bundle %s (offset=%d, size=%d): %w", bundleName, offset, size, err)
-	}
-
-	return data, nil
+func (s *GgpkSource) IndexCachePath() string {
+	return s.ggpkPath + ".idx"
 }
 
 func (s *GgpkSource) Close() error {
