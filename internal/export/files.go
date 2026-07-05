@@ -34,18 +34,18 @@ func NewExporter(loader FileLoader, outputDir string) *Exporter {
 type ProgressCallback func(current int, total int, description string)
 
 type progressCounter struct {
-	done  atomic.Int64
+	done  int
 	total int
 	mu    sync.Mutex
 	cb    ProgressCallback
 }
 
 func (p *progressCounter) tick(name string) {
-	cur := int(p.done.Add(1))
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.done++
 	if p.cb != nil {
-		p.mu.Lock()
-		p.cb(cur, p.total, name)
-		p.mu.Unlock()
+		p.cb(p.done, p.total, name)
 	}
 }
 
