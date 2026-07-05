@@ -25,6 +25,12 @@ go build -o exiledb ./cmd/exiledb/
 
 How to use:
 ```bash
+# Print the current version
+./exiledb version
+
+# Upgrade to the latest release (use --check to only look for new versions)
+./exiledb upgrade
+
 # Browse the bundle index to find files and directories
 ./exiledb list                     # list root directory
 ./exiledb list --path data/balance # list a specific path
