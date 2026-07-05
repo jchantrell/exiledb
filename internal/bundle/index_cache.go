@@ -12,7 +12,7 @@ import (
 
 const (
 	cacheMagic   = "EIDX"
-	cacheVersion = uint32(1)
+	cacheVersion = uint32(2)
 )
 
 // LoadIndexCached parses compressed index data, using an on-disk cache at

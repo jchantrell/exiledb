@@ -166,13 +166,14 @@ func loadBundleIndexFromRawData(indexFile io.ReaderAt) (*Index, error) {
 		data := pathData[pr.offset:end]
 		paths := readPathspec(data)
 		for _, path := range paths {
+			lower := strings.ToLower(path)
 			modernHash := MurmurHashPath(path)
 			if fe, found := filemap[modernHash]; found {
-				files[fe].path = path
+				files[fe].path = lower
 			} else {
 				legacyHash := FNVHashPath(path)
 				if fe, found := filemap[legacyHash]; found {
-					files[fe].path = path
+					files[fe].path = lower
 				} else {
 					continue
 				}
@@ -196,11 +197,8 @@ func loadBundleIndexFromRawData(indexFile io.ReaderAt) (*Index, error) {
 		slog.Warn("Dropping index files with no matching path", "count", unmatched)
 	}
 
-	// Lookups binary-search with a case-folded predicate, so the sort order
-	// must use the same fold or the search invariant breaks on mixed-case
-	// (legacy) indices.
 	sort.Slice(files, func(i, j int) bool {
-		return strings.ToLower(files[i].path) < strings.ToLower(files[j].path)
+		return files[i].path < files[j].path
 	})
 
 	return &Index{
@@ -278,10 +276,10 @@ func (idx *Index) find(path string) *bundleFileInfo {
 	lowerPath := strings.ToLower(path)
 
 	i := sort.Search(len(files), func(i int) bool {
-		return strings.ToLower(files[i].path) >= lowerPath
+		return files[i].path >= lowerPath
 	})
 
-	if i < len(files) && strings.ToLower(files[i].path) == lowerPath {
+	if i < len(files) && files[i].path == lowerPath {
 		return &files[i]
 	}
 	return nil
@@ -323,13 +321,12 @@ func (idx *Index) ListFilesWithPrefix(prefix string) []string {
 	}
 
 	start := sort.Search(len(files), func(i int) bool {
-		return strings.ToLower(files[i].path) >= lowerPrefix
+		return files[i].path >= lowerPrefix
 	})
 
 	var result []string
 	for i := start; i < len(files); i++ {
-		lower := strings.ToLower(files[i].path)
-		if !strings.HasPrefix(lower, lowerPrefix) {
+		if !strings.HasPrefix(files[i].path, lowerPrefix) {
 			break
 		}
 		result = append(result, files[i].path)
