@@ -4,17 +4,24 @@
 package cdn
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"path/filepath"
+	"sort"
+	"sync/atomic"
+
+	"golang.org/x/sync/errgroup"
 
 	"github.com/jchantrell/exiledb/internal/cache"
-	"github.com/jchantrell/exiledb/internal/utils"
 )
 
 const (
 	PoE1CDNURL = "https://patch.poecdn.com"
 	PoE2CDNURL = "https://patch-poe2.poecdn.com"
+
+	// downloadConcurrency bounds parallel bundle downloads.
+	downloadConcurrency = 6
 )
 
 func ConstructURL(gameVersion int, patch string, filename string) string {
@@ -27,16 +34,13 @@ func ConstructURL(gameVersion int, patch string, filename string) string {
 	return fmt.Sprintf("%s/%s/Bundles2/%s", baseURL, patch, filename)
 }
 
-func DownloadIndex(cache *cache.Cache, patch string, gameVersion int, force bool) error {
+func DownloadIndex(ctx context.Context, cache *cache.Cache, patch string, gameVersion int, force bool) error {
 	indexPath := cache.GetIndexPath(patch)
 
-	if !force {
-		if cache.FileExists(indexPath) {
-			size := cache.GetFileSize(indexPath)
-			if size > 0 {
-				return nil
-			}
-		}
+	// Downloads land atomically (temp file + rename), so existence means a
+	// completed download.
+	if !force && cache.FileExists(indexPath) && cache.GetFileSize(indexPath) > 0 {
+		return nil
 	}
 
 	indexURL := ConstructURL(gameVersion, patch, "_.index.bin")
@@ -46,17 +50,8 @@ func DownloadIndex(cache *cache.Cache, patch string, gameVersion int, force bool
 		return fmt.Errorf("creating cache directory: %w", err)
 	}
 
-	if err := utils.DownloadFile(indexPath, indexURL); err != nil {
-		return fmt.Errorf("downloading index file from %s: %w", indexURL, err)
-	}
-
-	if !cache.FileExists(indexPath) {
-		return fmt.Errorf("downloaded index file is missing")
-	}
-
-	size := cache.GetFileSize(indexPath)
-	if size == 0 {
-		return fmt.Errorf("downloaded index file is empty")
+	if err := Download(ctx, indexURL, indexPath); err != nil {
+		return fmt.Errorf("downloading index file: %w", err)
 	}
 
 	return nil
@@ -66,7 +61,7 @@ func DownloadIndex(cache *cache.Cache, patch string, gameVersion int, force bool
 // currently being downloaded. A nil ProgressFunc disables reporting.
 type ProgressFunc func(done, total int, description string)
 
-func DownloadBundles(cache *cache.Cache, patch string, gameVersion int, bundleNames []string, force bool, progress ProgressFunc) error {
+func DownloadBundles(ctx context.Context, cache *cache.Cache, patch string, gameVersion int, bundleNames []string, force bool, progress ProgressFunc) error {
 	var downloadableCount int
 	bundlesToDownload := make([]string, 0, len(bundleNames))
 
@@ -93,45 +88,35 @@ func DownloadBundles(cache *cache.Cache, patch string, gameVersion int, bundleNa
 	}
 
 	slog.Info("Downloading bundles", "count", downloadableCount)
+	sort.Strings(bundlesToDownload)
 
-	downloaded := 0
+	var downloaded atomic.Int64
+	g, ctx := errgroup.WithContext(ctx)
+	g.SetLimit(downloadConcurrency)
 	for _, bundleName := range bundlesToDownload {
-		bundlePath := cache.GetBundlePath(patch, bundleName)
+		g.Go(func() error {
+			bundlePath := cache.GetBundlePath(patch, bundleName)
 
-		if err := cache.EnsureDir(filepath.Dir(bundlePath)); err != nil {
-			return fmt.Errorf("creating cache directory for bundle %s: %w", bundleName, err)
-		}
+			if err := cache.EnsureDir(filepath.Dir(bundlePath)); err != nil {
+				return fmt.Errorf("creating cache directory for bundle %s: %w", bundleName, err)
+			}
 
-		var cdnFileName string
-		if bundleName == "_.index.bin" {
-			cdnFileName = bundleName // Keep as _.index.bin
-		} else {
-			cdnFileName = bundleName + ".bundle.bin"
-		}
-		bundleURL := ConstructURL(gameVersion, patch, cdnFileName)
+			cdnFileName := bundleName + ".bundle.bin"
+			if bundleName == "_.index.bin" {
+				cdnFileName = bundleName
+			}
 
-		slog.Debug("Downloading bundle", "bundle", bundleName)
-		if progress != nil {
-			progress(downloaded, downloadableCount, bundleName)
-		}
-		if err := utils.DownloadFile(bundlePath, bundleURL); err != nil {
-			return fmt.Errorf("downloading bundle %s from %s: %w", bundleName, bundleURL, err)
-		}
+			slog.Debug("Downloading bundle", "bundle", bundleName)
+			if err := Download(ctx, ConstructURL(gameVersion, patch, cdnFileName), bundlePath); err != nil {
+				return fmt.Errorf("downloading bundle %s: %w", bundleName, err)
+			}
 
-		if !cache.FileExists(bundlePath) {
-			return fmt.Errorf("downloaded bundle %s is missing", bundleName)
-		}
-
-		size := cache.GetFileSize(bundlePath)
-		if size == 0 {
-			return fmt.Errorf("downloaded bundle %s is empty", bundleName)
-		}
-
-		downloaded++
-		if progress != nil {
-			progress(downloaded, downloadableCount, bundleName)
-		}
+			if progress != nil {
+				progress(int(downloaded.Add(1)), downloadableCount, bundleName)
+			}
+			return nil
+		})
 	}
 
-	return nil
+	return g.Wait()
 }
