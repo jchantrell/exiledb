@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -35,231 +36,232 @@ func NewExporter(loader FileLoader, outputDir string) *Exporter {
 // ProgressCallback is called to report export progress
 type ProgressCallback func(current int, total int, description string)
 
-// ExportFiles exports the specified files from bundles to the output directory
-// Handles sprite extraction and DDS conversion as needed
-func (e *Exporter) ExportFiles(files []string, progressCallback ProgressCallback) error {
-	if len(files) == 0 {
-		return nil
-	}
-
-	// Create output directory
-	if err := os.MkdirAll(e.outputDir, 0755); err != nil {
-		return fmt.Errorf("creating output directory: %w", err)
-	}
-
-	totalFiles := len(files)
-	processedCount := 0
-
-	// Check if we have any sprite files
-	hasSpriteFiles := false
-	for _, file := range files {
-		if IsInsideSprite(file) {
-			hasSpriteFiles = true
-			break
-		}
-	}
-
-	// Load sprite indices only if needed
-	var parsedLists [][]SpriteImage
-	if hasSpriteFiles {
-		var err error
-		parsedLists, err = e.loadSpriteIndices()
-		if err != nil {
-			return fmt.Errorf("loading sprite indices: %w", err)
-		}
-
-		// Export from sprites
-		processed, err := e.exportSprites(files, parsedLists, totalFiles, &processedCount, progressCallback)
-		if err != nil {
-			return fmt.Errorf("exporting sprites: %w", err)
-		}
-		processedCount = processed
-	}
-
-	// Export regular files
-	_, err := e.exportRegularFiles(files, totalFiles, &processedCount, progressCallback)
-	if err != nil {
-		return fmt.Errorf("exporting regular files: %w", err)
-	}
-
-	return nil
+// progressCounter is the single shared progress state for an export run.
+type progressCounter struct {
+	done  atomic.Int64
+	total int
+	mu    sync.Mutex
+	cb    ProgressCallback
 }
 
-// loadSpriteIndices loads and parses all sprite index files
-func (e *Exporter) loadSpriteIndices() ([][]SpriteImage, error) {
-	parsedLists := make([][]SpriteImage, len(SpriteLists))
+func (p *progressCounter) tick(name string) {
+	cur := int(p.done.Add(1))
+	if p.cb != nil {
+		p.mu.Lock()
+		p.cb(cur, p.total, name)
+		p.mu.Unlock()
+	}
+}
 
-	for i, sprite := range SpriteLists {
-		slog.Debug("Loading sprite index", "path", sprite.Path)
+// ExportFiles exports the specified files from bundles to the output
+// directory, handling sprite extraction and DDS conversion as needed.
+// Individual file failures are logged and counted rather than aborting the
+// run; the returned count is the number of files actually exported (or
+// already present).
+func (e *Exporter) ExportFiles(files []string, progressCallback ProgressCallback) (int, error) {
+	if len(files) == 0 {
+		return 0, nil
+	}
 
-		fileData, err := e.loader.GetFile(sprite.Path)
+	if err := os.MkdirAll(e.outputDir, 0755); err != nil {
+		return 0, fmt.Errorf("creating output directory: %w", err)
+	}
+
+	var spriteFiles, regularFiles []string
+	for _, file := range files {
+		if IsInsideSprite(file) {
+			spriteFiles = append(spriteFiles, file)
+		} else {
+			regularFiles = append(regularFiles, file)
+		}
+	}
+
+	progress := &progressCounter{total: len(files), cb: progressCallback}
+	exported := 0
+	failed := 0
+
+	if len(spriteFiles) > 0 {
+		ok, bad, err := e.exportSprites(spriteFiles, progress)
 		if err != nil {
-			slog.Warn("Sprite index not available, skipping", "path", sprite.Path, "error", err)
+			return exported, err
+		}
+		exported += ok
+		failed += bad
+	}
+
+	ok, bad, err := e.exportRegularFiles(regularFiles, progress)
+	exported += ok
+	failed += bad
+	if err != nil {
+		return exported, err
+	}
+
+	if failed > 0 {
+		slog.Warn("Some files failed to export", "failed", failed, "exported", exported)
+	}
+	return exported, nil
+}
+
+// spriteIndex maps image names to their entries across all sprite lists.
+func (e *Exporter) spriteIndex() (map[string]*SpriteImage, error) {
+	index := make(map[string]*SpriteImage)
+	for _, list := range SpriteLists {
+		fileData, err := e.loader.GetFile(list.Path)
+		if err != nil {
+			slog.Warn("Sprite index not available, skipping", "path", list.Path, "error", err)
 			continue
 		}
 
 		sprites, err := ParseSpriteIndex(fileData)
 		if err != nil {
-			return nil, fmt.Errorf("parsing sprite index %s: %w", sprite.Path, err)
+			return nil, fmt.Errorf("parsing sprite index %s: %w", list.Path, err)
 		}
+		slog.Debug("Loaded sprite index", "path", list.Path, "count", len(sprites))
 
-		parsedLists[i] = sprites
-		slog.Debug("Loaded sprite index", "path", sprite.Path, "count", len(sprites))
+		for i := range sprites {
+			index[sprites[i].Name] = &sprites[i]
+		}
 	}
-
-	return parsedLists, nil
+	return index, nil
 }
 
-// exportSprites exports images from sprite sheets
-func (e *Exporter) exportSprites(files []string, parsedLists [][]SpriteImage, totalFiles int, processedCount *int, progressCallback ProgressCallback) (int, error) {
-	// Filter files that are inside sprites
-	spriteFiles := make([]string, 0)
-	for _, file := range files {
-		if IsInsideSprite(file) {
-			spriteFiles = append(spriteFiles, file)
+// ResolveSpriteSheets returns the sheet DDS paths needed to export the given
+// sprite-image names. Callers use it to discover which bundles must be
+// downloaded before export can run.
+func ResolveSpriteSheets(loader FileLoader, files []string) ([]string, error) {
+	e := &Exporter{loader: loader}
+
+	needed := false
+	for _, f := range files {
+		if IsInsideSprite(f) {
+			needed = true
+			break
+		}
+	}
+	if !needed {
+		return nil, nil
+	}
+
+	index, err := e.spriteIndex()
+	if err != nil {
+		return nil, err
+	}
+
+	sheets := make(map[string]bool)
+	for _, f := range files {
+		if img, ok := index[f]; ok {
+			sheets[img.SpritePath] = true
 		}
 	}
 
-	if len(spriteFiles) == 0 {
-		return *processedCount, nil
+	paths := make([]string, 0, len(sheets))
+	for sheet := range sheets {
+		paths = append(paths, sheet)
+	}
+	sort.Strings(paths)
+	return paths, nil
+}
+
+// exportSprites exports images cropped from sprite sheets. Each sheet is
+// decoded once and processed by one worker; a failing sheet fails only its
+// own images. Returns (exported, failed).
+func (e *Exporter) exportSprites(spriteFiles []string, progress *progressCounter) (int, int, error) {
+	index, err := e.spriteIndex()
+	if err != nil {
+		return 0, 0, err
 	}
 
-	// Map files to their sprite images
-	images := make([]*SpriteImage, 0, len(spriteFiles))
+	bySheet := make(map[string][]*SpriteImage)
+	var missing int
 	for _, path := range spriteFiles {
-		// Find which sprite list this file belongs to
-		listIdx := -1
-		for i, list := range SpriteLists {
-			if strings.HasPrefix(path, list.NamePrefix) {
-				listIdx = i
-				break
-			}
-		}
-
-		if listIdx == -1 {
-			slog.Warn("File marked as sprite but no matching list found", "path", path)
-			continue
-		}
-
-		// Find the sprite image in the parsed list
-		var found *SpriteImage
-		for i := range parsedLists[listIdx] {
-			if parsedLists[listIdx][i].Name == path {
-				found = &parsedLists[listIdx][i]
-				break
-			}
-		}
-
-		if found == nil {
+		img, ok := index[path]
+		if !ok {
 			slog.Warn("Sprite image not found in index", "path", path)
+			missing++
+			progress.tick(sanitizePath(path))
 			continue
 		}
-
-		images = append(images, found)
+		bySheet[img.SpritePath] = append(bySheet[img.SpritePath], img)
 	}
 
-	// Group images by sprite path
-	bySprite := make(map[string][]*SpriteImage)
-	for _, img := range images {
-		bySprite[img.SpritePath] = append(bySprite[img.SpritePath], img)
+	sheets := make([]string, 0, len(bySheet))
+	for sheet := range bySheet {
+		sheets = append(sheets, sheet)
 	}
+	sort.Strings(sheets)
 
-	var processed atomic.Int64
-	processed.Store(int64(*processedCount))
+	var exported, failed atomic.Int64
+	failed.Add(int64(missing))
 
-	var progressMu sync.Mutex
-	reportProgress := func(name string) {
-		cur := int(processed.Add(1))
-		if progressCallback != nil {
-			progressMu.Lock()
-			progressCallback(cur, totalFiles, name)
-			progressMu.Unlock()
-		}
-	}
-
-	workers := runtime.GOMAXPROCS(0)
 	g := new(errgroup.Group)
-	g.SetLimit(workers)
+	g.SetLimit(runtime.GOMAXPROCS(0))
 
-	for spritePath, spriteImages := range bySprite {
-		slog.Info("Extracting sprite sheet", "path", spritePath, "image_count", len(spriteImages))
+	for _, sheet := range sheets {
+		images := bySheet[sheet]
+		g.Go(func() error {
+			slog.Info("Extracting sprite sheet", "path", sheet, "image_count", len(images))
 
-		ddsData, err := e.loader.GetFile(spritePath)
-		if err != nil {
-			return int(processed.Load()), fmt.Errorf("loading sprite DDS %s: %w", spritePath, err)
-		}
-
-		for _, img := range spriteImages {
-			outputPath := filepath.Join(e.outputDir, sanitizePath(img.Name)+".png")
-
-			if _, err := os.Stat(outputPath); err == nil {
-				reportProgress(sanitizePath(img.Name))
-				continue
+			ddsData, err := e.loader.GetFile(sheet)
+			if err != nil {
+				slog.Error("Failed to load sprite sheet", "path", sheet, "error", err)
+				failed.Add(int64(len(images)))
+				for _, img := range images {
+					progress.tick(sanitizePath(img.Name))
+				}
+				return nil
 			}
 
-			img := img
-			g.Go(func() error {
-				crop := &CropParams{
-					Width:  img.Width,
-					Height: img.Height,
-					Top:    img.Top,
-					Left:   img.Left,
+			decoded, err := DecodeDDS(ddsData)
+			if err != nil {
+				slog.Error("Failed to decode sprite sheet", "path", sheet, "error", err)
+				failed.Add(int64(len(images)))
+				for _, img := range images {
+					progress.tick(sanitizePath(img.Name))
 				}
-
-				if err := ConvertDDSToPNG(ddsData, crop, outputPath); err != nil {
-					return fmt.Errorf("converting sprite image %s: %w", img.Name, err)
-				}
-
-				reportProgress(sanitizePath(img.Name))
-				slog.Debug("Extracted sprite image", "name", img.Name, "output", outputPath)
 				return nil
-			})
-		}
+			}
+
+			for _, img := range images {
+				outputPath := filepath.Join(e.outputDir, sanitizePath(img.Name)+".png")
+				if _, err := os.Stat(outputPath); err == nil {
+					exported.Add(1)
+					progress.tick(sanitizePath(img.Name))
+					continue
+				}
+
+				crop := &CropParams{Left: img.Left, Top: img.Top, Width: img.Width, Height: img.Height}
+				if err := EncodePNG(decoded, crop, outputPath); err != nil {
+					slog.Error("Failed to export sprite image", "name", img.Name, "error", err)
+					failed.Add(1)
+				} else {
+					exported.Add(1)
+					slog.Debug("Extracted sprite image", "name", img.Name, "output", outputPath)
+				}
+				progress.tick(sanitizePath(img.Name))
+			}
+			return nil
+		})
 	}
 
 	if err := g.Wait(); err != nil {
-		return int(processed.Load()), err
+		return int(exported.Load()), int(failed.Load()), err
 	}
-
-	*processedCount = int(processed.Load())
-	return *processedCount, nil
+	return int(exported.Load()), int(failed.Load()), nil
 }
 
-// exportRegularFiles exports non-sprite files using parallel workers
-func (e *Exporter) exportRegularFiles(files []string, totalFiles int, processedCount *int, progressCallback ProgressCallback) (int, error) {
-	regularFiles := make([]string, 0)
-	for _, file := range files {
-		if !IsInsideSprite(file) {
-			regularFiles = append(regularFiles, file)
-		}
-	}
-
+// exportRegularFiles exports non-sprite files using parallel workers.
+// Returns (exported, failed).
+func (e *Exporter) exportRegularFiles(regularFiles []string, progress *progressCounter) (int, int, error) {
 	if len(regularFiles) == 0 {
-		return *processedCount, nil
+		return 0, 0, nil
 	}
 
-	var processed atomic.Int64
-	processed.Store(int64(*processedCount))
+	var exported, failed, skipped atomic.Int64
 
-	var progressMu sync.Mutex
-	reportProgress := func(name string) {
-		cur := int(processed.Add(1))
-		if progressCallback != nil {
-			progressMu.Lock()
-			progressCallback(cur, totalFiles, name)
-			progressMu.Unlock()
-		}
-	}
-
-	workers := runtime.GOMAXPROCS(0)
 	g := new(errgroup.Group)
-	g.SetLimit(workers)
-
-	var skipped atomic.Int64
+	g.SetLimit(runtime.GOMAXPROCS(0))
 
 	for _, filePath := range regularFiles {
-		filePath := filePath
-
 		var outputPath string
 		if strings.HasSuffix(filePath, ".dds") {
 			outputPath = filepath.Join(e.outputDir, strings.TrimSuffix(sanitizePath(filePath), ".dds")+".png")
@@ -269,67 +271,71 @@ func (e *Exporter) exportRegularFiles(files []string, totalFiles int, processedC
 
 		if _, err := os.Stat(outputPath); err == nil {
 			skipped.Add(1)
-			reportProgress(sanitizePath(filePath))
+			exported.Add(1)
+			progress.tick(sanitizePath(filePath))
 			continue
 		}
 
 		g.Go(func() error {
+			defer progress.tick(sanitizePath(filePath))
+
 			fileData, err := e.loader.GetFile(filePath)
 			if err != nil {
 				slog.Warn("Skipping file export", "path", filePath, "error", err)
-				reportProgress(sanitizePath(filePath))
+				failed.Add(1)
 				return nil
 			}
 
 			if strings.HasSuffix(filePath, ".dds") {
 				if err := ConvertDDSToPNG(fileData, nil, outputPath); err != nil {
 					slog.Warn("Skipping DDS conversion", "path", filePath, "error", err)
-					reportProgress(sanitizePath(filePath))
+					failed.Add(1)
 					return nil
 				}
 				slog.Debug("Converted DDS to PNG", "path", filePath, "output", outputPath)
-			} else {
-				data := fileData
-				lower := strings.ToLower(filePath)
-				if strings.HasSuffix(lower, ".txt") || strings.HasSuffix(lower, ".text") {
-					text, err := DecodeUTF16LE(data)
-					if err != nil {
-						slog.Debug("Text file is not UTF-16LE, writing as-is", "path", filePath, "error", err)
-					} else {
-						data = []byte(text)
-						slog.Debug("Decoded text file to UTF-8", "path", filePath, "output", outputPath)
-					}
-				} else if strings.HasSuffix(lower, ".ast") {
-					decompressed, err := DecompressAST(data)
-					if err != nil {
-						slog.Warn("AST decompression failed, writing as-is", "path", filePath, "error", err)
-					} else {
-						data = decompressed
-						slog.Debug("Decompressed AST animation payload", "path", filePath)
-					}
-				}
-
-				if err := os.WriteFile(outputPath, data, 0644); err != nil {
-					return fmt.Errorf("writing file %s: %w", outputPath, err)
-				}
-				slog.Debug("Copied file", "path", filePath, "output", outputPath)
+				exported.Add(1)
+				return nil
 			}
 
-			reportProgress(sanitizePath(filePath))
+			data := fileData
+			lower := strings.ToLower(filePath)
+			if strings.HasSuffix(lower, ".txt") || strings.HasSuffix(lower, ".text") {
+				text, err := DecodeUTF16LE(data)
+				if err != nil {
+					slog.Debug("Text file is not UTF-16LE, writing as-is", "path", filePath, "error", err)
+				} else {
+					data = []byte(text)
+					slog.Debug("Decoded text file to UTF-8", "path", filePath, "output", outputPath)
+				}
+			} else if strings.HasSuffix(lower, ".ast") {
+				decompressed, err := DecompressAST(data)
+				if err != nil {
+					slog.Warn("AST decompression failed, writing as-is", "path", filePath, "error", err)
+				} else {
+					data = decompressed
+					slog.Debug("Decompressed AST animation payload", "path", filePath)
+				}
+			}
+
+			if err := os.WriteFile(outputPath, data, 0644); err != nil {
+				slog.Error("Failed to write file", "path", outputPath, "error", err)
+				failed.Add(1)
+				return nil
+			}
+			slog.Debug("Copied file", "path", filePath, "output", outputPath)
+			exported.Add(1)
 			return nil
 		})
 	}
 
 	if err := g.Wait(); err != nil {
-		return int(processed.Load()), err
+		return int(exported.Load()), int(failed.Load()), err
 	}
 
 	if s := skipped.Load(); s > 0 {
 		slog.Info("Skipped already exported files", "count", s)
 	}
-
-	*processedCount = int(processed.Load())
-	return *processedCount, nil
+	return int(exported.Load()), int(failed.Load()), nil
 }
 
 // sanitizePath sanitizes a file path for use as a filename

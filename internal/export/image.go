@@ -16,12 +16,18 @@ type CropParams struct {
 	Left   int
 }
 
-func ConvertDDSToPNG(ddsData []byte, crop *CropParams, outputPath string) error {
+// DecodeDDS decodes DDS bytes into an image. Sprite export decodes each
+// sheet once and crops many images from it.
+func DecodeDDS(ddsData []byte) (image.Image, error) {
 	img, err := dds.Decode(ddsData)
 	if err != nil {
-		return fmt.Errorf("decoding DDS: %w", err)
+		return nil, fmt.Errorf("decoding DDS: %w", err)
 	}
+	return img, nil
+}
 
+// EncodePNG writes an image (optionally cropped) to outputPath as PNG.
+func EncodePNG(img image.Image, crop *CropParams, outputPath string) error {
 	if crop != nil {
 		bounds := image.Rect(crop.Left, crop.Top, crop.Left+crop.Width, crop.Top+crop.Height)
 		type subImager interface {
@@ -31,7 +37,11 @@ func ConvertDDSToPNG(ddsData []byte, crop *CropParams, outputPath string) error 
 		if !ok {
 			return fmt.Errorf("image type %T does not support cropping", img)
 		}
-		img = si.SubImage(bounds)
+		sub := si.SubImage(bounds)
+		if sub.Bounds().Empty() {
+			return fmt.Errorf("crop %v is outside the image bounds %v", bounds, img.Bounds())
+		}
+		img = sub
 	}
 
 	f, err := os.Create(outputPath)
@@ -46,4 +56,13 @@ func ConvertDDSToPNG(ddsData []byte, crop *CropParams, outputPath string) error 
 	}
 
 	return nil
+}
+
+// ConvertDDSToPNG decodes DDS bytes and writes them to outputPath as PNG.
+func ConvertDDSToPNG(ddsData []byte, crop *CropParams, outputPath string) error {
+	img, err := DecodeDDS(ddsData)
+	if err != nil {
+		return err
+	}
+	return EncodePNG(img, crop, outputPath)
 }

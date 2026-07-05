@@ -20,32 +20,28 @@ type SpriteImage struct {
 
 // SpriteList defines a sprite sheet configuration
 type SpriteList struct {
-	Path         string
-	NamePrefix   string
-	SpritePrefix string
+	Path       string
+	NamePrefix string
 }
 
 // SpriteLists contains all known sprite sheet definitions
 var SpriteLists = []SpriteList{
 	{
-		Path:         "Art/UIImages1.txt",
-		NamePrefix:   "Art/2DArt/UIImages/",
-		SpritePrefix: "Art/Textures/Interface/2D/",
+		Path:       "Art/UIImages1.txt",
+		NamePrefix: "Art/2DArt/UIImages/",
 	},
 	{
-		Path:         "Art/UIDivinationImages.txt",
-		NamePrefix:   "Art/2DItems/Divination/Images/",
-		SpritePrefix: "Art/Textures/Interface/2D/DivinationCards/",
+		Path:       "Art/UIDivinationImages.txt",
+		NamePrefix: "Art/2DItems/Divination/Images/",
 	},
 	{
-		Path:         "Art/UIShopImages.txt",
-		NamePrefix:   "Art/2DArt/Shop/",
-		SpritePrefix: "Art/Textures/Interface/2D/Shop/",
+		Path:       "Art/UIShopImages.txt",
+		NamePrefix: "Art/2DArt/Shop/",
 	},
 }
 
 // spriteLinePattern matches the sprite index line format:
-// "name" "spritePath" top left bottom right
+// "name" "spritePath" x1 y1 x2 y2  (left top right bottom, inclusive)
 var spriteLinePattern = regexp.MustCompile(`^"([^"]+)" "([^"]+)" ([^ ]+) ([^ ]+) ([^ ]+) ([^ ]+)$`)
 
 // ParseSpriteIndex parses a sprite index file (UTF-16LE encoded)
@@ -81,33 +77,33 @@ func parseSpriteText(text string) ([]SpriteImage, error) {
 			return nil, fmt.Errorf("line %d: invalid sprite format", i+1)
 		}
 
-		top, err := strconv.Atoi(matches[3])
-		if err != nil {
-			return nil, fmt.Errorf("line %d: invalid top value: %w", i+1, err)
-		}
-
-		left, err := strconv.Atoi(matches[4])
+		left, err := strconv.Atoi(matches[3])
 		if err != nil {
 			return nil, fmt.Errorf("line %d: invalid left value: %w", i+1, err)
 		}
 
-		bottom, err := strconv.Atoi(matches[5])
+		top, err := strconv.Atoi(matches[4])
 		if err != nil {
-			return nil, fmt.Errorf("line %d: invalid bottom value: %w", i+1, err)
+			return nil, fmt.Errorf("line %d: invalid top value: %w", i+1, err)
 		}
 
-		right, err := strconv.Atoi(matches[6])
+		right, err := strconv.Atoi(matches[5])
 		if err != nil {
 			return nil, fmt.Errorf("line %d: invalid right value: %w", i+1, err)
+		}
+
+		bottom, err := strconv.Atoi(matches[6])
+		if err != nil {
+			return nil, fmt.Errorf("line %d: invalid bottom value: %w", i+1, err)
 		}
 
 		sprites = append(sprites, SpriteImage{
 			Name:       matches[1],
 			SpritePath: matches[2],
-			Top:        top,
 			Left:       left,
-			Width:      bottom - top + 1,
-			Height:     right - left + 1,
+			Top:        top,
+			Width:      right - left + 1,
+			Height:     bottom - top + 1,
 		})
 	}
 
