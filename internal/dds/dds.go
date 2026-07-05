@@ -36,12 +36,7 @@ func DecodeInfo(r io.Reader) (Info, error) {
 		info.ColorModel = color.NRGBAModel
 		info.Decompress = DecompressUncompressed
 	} else if hdr.PixelFormat.Flags&PixelFormatFlagYUV != 0 {
-		if hdr.PixelFormat.Flags&PixelFormatFlagAlphaPixels == 0 {
-			info.ColorModel = color.YCbCrModel
-		} else {
-			info.ColorModel = color.NYCbCrAModel
-		}
-		info.Decompress = DecompressUncompressed
+		return Info{}, errors.New("YUV compression unsupported")
 	} else if hdr.PixelFormat.Flags&PixelFormatFlagLuminance != 0 {
 		if hdr.PixelFormat.Flags&PixelFormatFlagAlphaPixels == 0 {
 			if hdr.PixelFormat.GBitMask == 0 && hdr.PixelFormat.BBitMask == 0 {
