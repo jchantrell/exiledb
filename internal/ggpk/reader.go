@@ -93,14 +93,14 @@ func (r *Reader) findChild(dirOffset uint64, name string) (uint64, *FileRecord, 
 	for _, entry := range dir.Entries {
 		header, err := readRecordHeader(r.file, entry.Offset)
 		if err != nil {
-			continue
+			return 0, nil, fmt.Errorf("reading record header at offset %d: %w", entry.Offset, err)
 		}
 
 		switch header.Tag {
 		case TagPDIR:
 			subDir, err := readDirectoryRecord(r.file, entry.Offset, r.Version)
 			if err != nil {
-				continue
+				return 0, nil, fmt.Errorf("reading directory record at offset %d: %w", entry.Offset, err)
 			}
 			if strings.EqualFold(subDir.Name, name) {
 				return entry.Offset, nil, nil
@@ -108,7 +108,7 @@ func (r *Reader) findChild(dirOffset uint64, name string) (uint64, *FileRecord, 
 		case TagFILE:
 			file, err := readFileRecord(r.file, entry.Offset, r.Version)
 			if err != nil {
-				continue
+				return 0, nil, fmt.Errorf("reading file record at offset %d: %w", entry.Offset, err)
 			}
 			if strings.EqualFold(file.Name, name) {
 				return 0, &file, nil
