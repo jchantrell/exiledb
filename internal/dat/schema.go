@@ -1,21 +1,23 @@
 package dat
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-
-	"github.com/jchantrell/exiledb/internal/cache"
-	"github.com/jchantrell/exiledb/internal/utils"
 	"io"
 	"os"
+
+	"github.com/jchantrell/exiledb/internal/cache"
+	"github.com/jchantrell/exiledb/internal/cdn"
+	"github.com/jchantrell/exiledb/internal/poe"
 )
 
-// SchemaManager implements SchemaManager using a cached schema file
+// SchemaManager loads and serves the community schema.
 type SchemaManager struct {
 	schema *CommunitySchema
 }
 
-// LoadCachedSchema loads the schema from cache or downloads it if not available
+// NewSchemaManager downloads the latest community schema and loads it.
 func NewSchemaManager() (*SchemaManager, error) {
 	cacheManager := cache.CacheManager()
 	schemaPath := cacheManager.GetSchemaPath()
@@ -27,8 +29,8 @@ func NewSchemaManager() (*SchemaManager, error) {
 
 	// Always download fresh schema to ensure we have the latest version
 	// This is important as the community schema is frequently updated with fixes
-	if err := utils.DownloadFile(schemaPath, CommunitySchemaURL); err != nil {
-		return nil, fmt.Errorf("downloading schema from %s: %w", CommunitySchemaURL, err)
+	if err := cdn.Download(context.Background(), CommunitySchemaURL, schemaPath); err != nil {
+		return nil, fmt.Errorf("downloading schema: %w", err)
 	}
 
 	// Load schema from file
@@ -46,11 +48,6 @@ func NewSchemaManager() (*SchemaManager, error) {
 	return &SchemaManager{schema: schema}, nil
 }
 
-// LoadSchema returns the cached schema
-func (sm *SchemaManager) LoadSchema() (*CommunitySchema, error) {
-	return sm.schema, nil
-}
-
 // GetTableSchema retrieves a table schema by name filtered by game version compatibility
 func (sm *SchemaManager) GetTableSchema(tableName string, gameVersion string) (*TableSchema, error) {
 	return sm.schema.GetTableSchema(tableName, gameVersion)
@@ -58,27 +55,12 @@ func (sm *SchemaManager) GetTableSchema(tableName string, gameVersion string) (*
 
 // GetValidTablesForVersion returns all tables valid for the given game version
 func (sm *SchemaManager) GetValidTablesForVersion(version string) ([]TableSchema, error) {
-	gameVersion, err := utils.ParseGameVersion(version)
+	gameVersion, err := poe.ParseGameVersion(version)
 	if err != nil {
 		return nil, fmt.Errorf("parsing game version %s: %w", version, err)
 	}
 
 	return sm.schema.GetValidTables(gameVersion), nil
-}
-
-// IsTableValidForVersion checks if a table is valid for the given game version
-func (sm *SchemaManager) IsTableValidForVersion(tableName, version string) (bool, error) {
-	schema, err := sm.GetTableSchema(tableName, version)
-	if err != nil {
-		return false, nil
-	}
-
-	gameVersion, err := utils.ParseGameVersion(version)
-	if err != nil {
-		return false, fmt.Errorf("parsing game version %s: %w", version, err)
-	}
-
-	return schema.ValidFor.IsValidForGame(gameVersion), nil
 }
 
 // parseSchemaFromReader parses a CommunitySchema from a JSON reader

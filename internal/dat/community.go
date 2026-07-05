@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/jchantrell/exiledb/internal/utils"
+	"github.com/jchantrell/exiledb/internal/poe"
 )
 
 // CommunitySchemaURL is the official URL for the community schema
@@ -70,19 +70,10 @@ type CommunitySchema struct {
 	Enumerations []SchemaEnumeration `json:"enumerations"` // Enumeration definitions
 }
 
-// GetSchemaTableNames returns all table names from the schema
-func (schema *CommunitySchema) GetSchemaTableNames() []string {
-	names := make([]string, len(schema.Tables))
-	for i, table := range schema.Tables {
-		names[i] = table.Name
-	}
-	return names
-}
-
 // GetTableSchema finds a table schema by name filtered by game version compatibility
 func (cs *CommunitySchema) GetTableSchema(tableName string, gameVersion string) (*TableSchema, error) {
 	// Parse game version to determine major version
-	majorVersion, err := utils.ParseGameVersion(gameVersion)
+	majorVersion, err := poe.ParseGameVersion(gameVersion)
 	if err != nil {
 		return nil, fmt.Errorf("parsing game version %s: %w", gameVersion, err)
 	}
@@ -149,84 +140,4 @@ func (vf ValidFor) IsValidForGame(gameVersion int) bool {
 		// Path of Exile 1 (3.x versions)
 		return (vf & ValidForPoE1) != 0
 	}
-}
-
-// FilterTablesForVersion filters a list of table names to only include those valid for the given version
-func (schema *CommunitySchema) FilterTablesForVersion(tableNames []string, version string) ([]string, error) {
-
-	var validTables []string
-	for _, tableName := range tableNames {
-		// Use the version-aware schema selection to check compatibility
-		table, err := schema.GetTableSchema(tableName, version)
-		if err != nil {
-			continue // Skip tables that don't have compatible schemas
-		}
-
-		// If we got a table schema, it's already validated for this version
-		if table != nil {
-			validTables = append(validTables, tableName)
-		}
-	}
-
-	return validTables, nil
-}
-
-// GetColumnNames returns all column names for a given table
-func (table *TableSchema) GetColumnNames() []string {
-	var names []string
-	for _, column := range table.Columns {
-		if column.Name != nil {
-			names = append(names, *column.Name)
-		}
-	}
-	return names
-}
-
-// GetColumnByName finds a column by name in a table schema
-func (table *TableSchema) GetColumnByName(columnName string) (*TableColumn, bool) {
-	for i, column := range table.Columns {
-		if column.Name != nil && *column.Name == columnName {
-			return &table.Columns[i], true
-		}
-	}
-	return nil, false
-}
-
-// HasColumn checks if a table has a column with the given name
-func (table *TableSchema) HasColumn(columnName string) bool {
-	_, exists := table.GetColumnByName(columnName)
-	return exists
-}
-
-// GetForeignKeyColumns returns all columns in a table that are foreign key references
-func (table *TableSchema) GetForeignKeyColumns() []TableColumn {
-	var fkColumns []TableColumn
-	for _, column := range table.Columns {
-		if column.References != nil {
-			fkColumns = append(fkColumns, column)
-		}
-	}
-	return fkColumns
-}
-
-// GetArrayColumns returns all columns in a table that are arrays
-func (table *TableSchema) GetArrayColumns() []TableColumn {
-	var arrayColumns []TableColumn
-	for _, column := range table.Columns {
-		if column.Array {
-			arrayColumns = append(arrayColumns, column)
-		}
-	}
-	return arrayColumns
-}
-
-// GetLocalizedColumns returns all columns in a table that are localized
-func (table *TableSchema) GetLocalizedColumns() []TableColumn {
-	var localizedColumns []TableColumn
-	for _, column := range table.Columns {
-		if column.Localized {
-			localizedColumns = append(localizedColumns, column)
-		}
-	}
-	return localizedColumns
 }

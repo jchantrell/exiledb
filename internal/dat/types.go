@@ -70,13 +70,7 @@ func (ft FieldType) Valid() bool {
 
 // Size returns the fixed size in bytes for this field type in DAT files
 // Returns 0 for variable-length types (strings, arrays)
-// If width is provided, it uses that width, otherwise defaults to 64-bit for backward compatibility
-func (ft FieldType) Size(width ...ParserWidth) int {
-	var w ParserWidth = Width64 // Default to 64-bit for backward compatibility
-	if len(width) > 0 {
-		w = width[0]
-	}
-
+func (ft FieldType) Size(width ParserWidth) int {
 	switch ft {
 	case TypeBool:
 		return 1
@@ -95,7 +89,7 @@ func (ft FieldType) Size(width ...ParserWidth) int {
 	case TypeString:
 		return 8 // FIELD_SIZE.STRING - always 8 bytes like poe-dat-viewer
 	case TypeLongID:
-		if w == Width32 {
+		if width == Width32 {
 			return 8 // 32-bit: 8-byte LongID
 		}
 		return 16 // 64-bit: 16-byte LongID
@@ -106,13 +100,65 @@ func (ft FieldType) Size(width ...ParserWidth) int {
 	}
 }
 
+const (
+	// NullRowSentinel is the sentinel value indicating a null row reference
+	NullRowSentinel uint32 = 0xfefe_fefe
+
+	// LongIDNullSentinel is the 64-bit sentinel value for null LongID references
+	LongIDNullSentinel uint64 = 0xfefe_fefe_fefe_fefe
+
+	// MaxReasonableForeignKeyIndex is the maximum reasonable value for foreign key indices
+	MaxReasonableForeignKeyIndex uint32 = 100_000_000
+
+	// MinDATFileSize is the minimum size for a valid DAT file (4 bytes for row count + 8 bytes boundary)
+	MinDATFileSize = 12
+
+	// MaxRowCount is the maximum reasonable number of rows in a DAT file
+	MaxRowCount = 10_000_000
+
+	// MinOffsetForArraysAndStrings is the minimum offset value for arrays and strings in dynamic data
+	MinOffsetForArraysAndStrings = 8
+
+	// ElementSize64BitForeignRow is the element size for foreign/enum row arrays in 64-bit width
+	ElementSize64BitForeignRow = 16
+
+	// Default configuration values
+	DefaultMaxStringLength           = 65536 // 64KB max string length
+	DefaultMaxArrayCount             = 65536 // Match reference implementations
+	DefaultArraySizeWarningThreshold = 1000  // Warn when arrays exceed 1000 elements
+)
+
+// BoundaryMarker separates the fixed-size row section from the dynamic data
+// section in a DAT file.
+var BoundaryMarker = []byte{0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb}
+
+// ParsedTable represents a completely parsed DAT table with all rows and metadata
+type ParsedTable struct {
+	Schema   *TableSchema   `json:"schema"`   // Original table schema
+	RowCount int            `json:"rowCount"` // Number of rows parsed
+	Rows     []ParsedRow    `json:"rows"`     // All parsed row data
+	Metadata *ParseMetadata `json:"metadata"` // Parsing metadata
+}
+
+// ParsedRow represents a single parsed row from a DAT table
+type ParsedRow struct {
+	Index        int                    `json:"index"`        // Row index (0-based)
+	Fields       map[string]interface{} `json:"fields"`       // Field name to parsed value mapping
+	FieldsParsed int                    `json:"fieldsParsed"` // Number of fields successfully parsed (useful for partial schema)
+}
+
+// ParseMetadata contains metadata about the parsing operation
+type ParseMetadata struct {
+	FixedDataSize   int `json:"fixedDataSize"`   // Size of fixed data section
+	DynamicDataSize int `json:"dynamicDataSize"` // Size of dynamic data section
+	TotalFileSize   int `json:"totalFileSize"`   // Total DAT file size
+	MaxFieldsParsed int `json:"maxFieldsParsed"` // Maximum number of fields parsed in any row (for partial schema)
+}
+
 // DatFile represents the structure of a parsed DAT file
 type DatFile struct {
 	// RowCount is the number of rows in the DAT file (first 4 bytes)
 	RowCount int
-
-	// RowLength is the fixed size of each row in bytes
-	RowLength int
 
 	// FixedData contains the fixed-size row data section
 	FixedData []byte
