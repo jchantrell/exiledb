@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"os"
 	"path/filepath"
 	"slices"
 	"time"
@@ -142,20 +143,44 @@ func openSource(ctx context.Context, cfg *config.Config, opts Options) (*bundle.
 	return manager, nil
 }
 
+// loadCommunitySchema fetches the latest community schema into the cache and
+// parses it. Always downloads fresh: the schema is frequently updated with
+// fixes and a stale copy silently misparses tables.
+func loadCommunitySchema(ctx context.Context) (*dat.CommunitySchema, error) {
+	c, err := cache.New()
+	if err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(c.Dir(), 0755); err != nil {
+		return nil, fmt.Errorf("creating schema cache directory: %w", err)
+	}
+	if err := cdn.Download(ctx, dat.CommunitySchemaURL, c.SchemaPath()); err != nil {
+		return nil, fmt.Errorf("downloading schema: %w", err)
+	}
+
+	file, err := os.Open(c.SchemaPath())
+	if err != nil {
+		return nil, fmt.Errorf("opening cached schema: %w", err)
+	}
+	defer file.Close()
+
+	return dat.ParseCommunitySchema(file)
+}
+
 // insertTables creates schemas for the requested tables and loads every
 // requested language of each table into the database.
 func insertTables(ctx context.Context, cfg *config.Config, db *database.Database, manager *bundle.BundleManager, progress *ui.Progress, stats *Stats) error {
-	schemaManager, err := dat.NewSchemaManager()
+	schema, err := loadCommunitySchema(ctx)
 	if err != nil {
-		return fmt.Errorf("loading schema manager: %w", err)
+		return fmt.Errorf("loading community schema: %w", err)
 	}
 
-	validTables, err := schemaManager.GetValidTablesForVersion(cfg.Patch)
+	gameVersion, err := poe.ParseGameVersion(cfg.Patch)
 	if err != nil {
-		return fmt.Errorf("getting valid tables for version %s: %w", cfg.Patch, err)
+		return fmt.Errorf("parsing game version %s: %w", cfg.Patch, err)
 	}
 
-	datSchemas := filterTables(validTables, cfg.Tables)
+	datSchemas := filterTables(schema.GetValidTables(gameVersion), cfg.Tables)
 	stats.TotalTables = len(datSchemas)
 
 	totalTables := len(datSchemas)

@@ -1,72 +1,14 @@
 package dat
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
-
-	"github.com/jchantrell/exiledb/internal/cache"
-	"github.com/jchantrell/exiledb/internal/cdn"
-	"github.com/jchantrell/exiledb/internal/poe"
 )
 
-// SchemaManager loads and serves the community schema.
-type SchemaManager struct {
-	schema *CommunitySchema
-}
-
-// NewSchemaManager downloads the latest community schema and loads it.
-func NewSchemaManager() (*SchemaManager, error) {
-	cacheManager, err := cache.New()
-	if err != nil {
-		return nil, err
-	}
-	schemaPath := cacheManager.SchemaPath()
-
-	if err := os.MkdirAll(cacheManager.Dir(), 0755); err != nil {
-		return nil, fmt.Errorf("creating schema cache directory: %w", err)
-	}
-
-	// Always download fresh schema to ensure we have the latest version
-	// This is important as the community schema is frequently updated with fixes
-	if err := cdn.Download(context.Background(), CommunitySchemaURL, schemaPath); err != nil {
-		return nil, fmt.Errorf("downloading schema: %w", err)
-	}
-
-	// Load schema from file
-	file, err := os.Open(schemaPath)
-	if err != nil {
-		return nil, fmt.Errorf("opening cached schema: %w", err)
-	}
-	defer file.Close()
-
-	schema, err := parseSchemaFromReader(file)
-	if err != nil {
-		return nil, fmt.Errorf("parsing cached schema: %w", err)
-	}
-
-	return &SchemaManager{schema: schema}, nil
-}
-
-// GetTableSchema retrieves a table schema by name filtered by game version compatibility
-func (sm *SchemaManager) GetTableSchema(tableName string, gameVersion string) (*TableSchema, error) {
-	return sm.schema.GetTableSchema(tableName, gameVersion)
-}
-
-// GetValidTablesForVersion returns all tables valid for the given game version
-func (sm *SchemaManager) GetValidTablesForVersion(version string) ([]TableSchema, error) {
-	gameVersion, err := poe.ParseGameVersion(version)
-	if err != nil {
-		return nil, fmt.Errorf("parsing game version %s: %w", version, err)
-	}
-
-	return sm.schema.GetValidTables(gameVersion), nil
-}
-
-// parseSchemaFromReader parses a CommunitySchema from a JSON reader
-func parseSchemaFromReader(r io.Reader) (*CommunitySchema, error) {
+// ParseCommunitySchema parses and validates a community schema from JSON.
+// Fetching the schema is the caller's concern; this package only decodes.
+func ParseCommunitySchema(r io.Reader) (*CommunitySchema, error) {
 	decoder := json.NewDecoder(r)
 
 	var schema CommunitySchema
