@@ -251,27 +251,20 @@ func (e *Exporter) exportRegularFiles(ctx context.Context, regularFiles []string
 	g.SetLimit(runtime.GOMAXPROCS(0))
 
 	for _, filePath := range regularFiles {
-		isDDS := strings.HasSuffix(filePath, ".dds")
-
-		var outputPath string
-		if isDDS {
-			outputPath = filepath.Join(e.outputDir, sanitizePath(filePath[:len(filePath)-len(".dds")])+".png")
-		} else {
-			outputPath = filepath.Join(e.outputDir, sanitizePath(filePath))
-		}
-
-		if _, err := os.Stat(outputPath); err == nil {
-			skipped.Add(1)
-			exported.Add(1)
-			progress.tick(sanitizePath(filePath))
-			continue
-		}
-
 		g.Go(func() error {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
 			defer progress.tick(sanitizePath(filePath))
+
+			t := transformFor(filePath)
+			outputPath := filepath.Join(e.outputDir, sanitizePath(t.output(filePath)))
+
+			if _, err := os.Stat(outputPath); err == nil {
+				skipped.Add(1)
+				exported.Add(1)
+				return nil
+			}
 
 			fileData, err := e.loader.GetFile(filePath)
 			if err != nil {
@@ -280,42 +273,10 @@ func (e *Exporter) exportRegularFiles(ctx context.Context, regularFiles []string
 				return nil
 			}
 
-			if isDDS {
-				if err := ConvertDDSToPNG(fileData, nil, outputPath); err != nil {
-					slog.Warn("Skipping DDS conversion", "path", filePath, "error", err)
-					failed.Add(1)
-					return nil
-				}
-				slog.Debug("Converted DDS to PNG", "path", filePath, "output", outputPath)
-				exported.Add(1)
-				return nil
-			}
-
-			data := fileData
-			if strings.HasSuffix(filePath, ".txt") || strings.HasSuffix(filePath, ".text") {
-				text, err := DecodeUTF16LE(data)
-				if err != nil {
-					slog.Debug("Text file is not UTF-16LE, writing as-is", "path", filePath, "error", err)
-				} else {
-					data = []byte(text)
-					slog.Debug("Decoded text file to UTF-8", "path", filePath, "output", outputPath)
-				}
-			} else if strings.HasSuffix(filePath, ".ast") {
-				decompressed, err := DecompressAST(data)
-				if err != nil {
-					slog.Warn("AST decompression failed, writing as-is", "path", filePath, "error", err)
-				} else {
-					data = decompressed
-					slog.Debug("Decompressed AST animation payload", "path", filePath)
-				}
-			}
-
-			if err := os.WriteFile(outputPath, data, 0644); err != nil {
-				slog.Error("Failed to write file", "path", outputPath, "error", err)
+			if err := t.write(filePath, outputPath, fileData); err != nil {
 				failed.Add(1)
 				return nil
 			}
-			slog.Debug("Copied file", "path", filePath, "output", outputPath)
 			exported.Add(1)
 			return nil
 		})

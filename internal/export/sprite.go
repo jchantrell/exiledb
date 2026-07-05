@@ -5,7 +5,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"unicode/utf16"
 )
 
 type SpriteImage struct {
@@ -101,19 +100,6 @@ func parseSpriteText(text string) ([]SpriteImage, error) {
 	}
 
 	return sprites, nil
-}
-
-func DecodeUTF16LE(data []byte) (string, error) {
-	if len(data)%2 != 0 {
-		return "", fmt.Errorf("invalid UTF-16LE data: odd number of bytes")
-	}
-
-	u16 := make([]uint16, len(data)/2)
-	for i := 0; i < len(u16); i++ {
-		u16[i] = uint16(data[i*2]) | uint16(data[i*2+1])<<8
-	}
-
-	return string(utf16.Decode(u16)), nil
 }
 
 func IsInsideSprite(path string) bool {
