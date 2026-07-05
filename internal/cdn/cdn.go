@@ -62,7 +62,11 @@ func DownloadIndex(cache *cache.Cache, patch string, gameVersion int, force bool
 	return nil
 }
 
-func DownloadBundles(cache *cache.Cache, patch string, gameVersion int, bundleNames []string, force bool, progressEnabled bool) error {
+// ProgressFunc reports download progress: done of total, plus the bundle
+// currently being downloaded. A nil ProgressFunc disables reporting.
+type ProgressFunc func(done, total int, description string)
+
+func DownloadBundles(cache *cache.Cache, patch string, gameVersion int, bundleNames []string, force bool, progress ProgressFunc) error {
 	var downloadableCount int
 	bundlesToDownload := make([]string, 0, len(bundleNames))
 
@@ -90,9 +94,7 @@ func DownloadBundles(cache *cache.Cache, patch string, gameVersion int, bundleNa
 
 	slog.Info("Downloading bundles", "count", downloadableCount)
 
-	bundleProgress := utils.NewProgress(downloadableCount, progressEnabled)
-
-	currentProgress := 0
+	downloaded := 0
 	for _, bundleName := range bundlesToDownload {
 		bundlePath := cache.GetBundlePath(patch, bundleName)
 
@@ -108,8 +110,9 @@ func DownloadBundles(cache *cache.Cache, patch string, gameVersion int, bundleNa
 		}
 		bundleURL := ConstructURL(gameVersion, patch, cdnFileName)
 
-		if !progressEnabled {
-			slog.Info("Downloading bundle", "bundle", bundleName)
+		slog.Debug("Downloading bundle", "bundle", bundleName)
+		if progress != nil {
+			progress(downloaded, downloadableCount, bundleName)
 		}
 		if err := utils.DownloadFile(bundlePath, bundleURL); err != nil {
 			return fmt.Errorf("downloading bundle %s from %s: %w", bundleName, bundleURL, err)
@@ -124,10 +127,11 @@ func DownloadBundles(cache *cache.Cache, patch string, gameVersion int, bundleNa
 			return fmt.Errorf("downloaded bundle %s is empty", bundleName)
 		}
 
-		currentProgress++
-		bundleProgress.Update(currentProgress, bundleName)
+		downloaded++
+		if progress != nil {
+			progress(downloaded, downloadableCount, bundleName)
+		}
 	}
 
-	bundleProgress.Finish()
 	return nil
 }

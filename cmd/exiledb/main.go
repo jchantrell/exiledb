@@ -6,12 +6,18 @@ import (
 	"os"
 
 	"github.com/jchantrell/exiledb/internal/config"
+	"github.com/jchantrell/exiledb/internal/ui"
 	"github.com/jchantrell/exiledb/internal/version"
 	"github.com/lmittmann/tint"
 	"github.com/spf13/cobra"
 )
 
 var cfg *config.Config
+
+// logOutput is the destination for all log output. Commands that render
+// progress bars swap it to the bar container so log lines print above live
+// bars instead of through them.
+var logOutput = ui.NewSwapWriter(os.Stderr)
 
 var rootCmd = &cobra.Command{
 	Use:   "exiledb",
@@ -51,11 +57,11 @@ and processes them according to the latest schema to create a local database.`,
 
 		var handler slog.Handler
 		if cfg.LogFormat == "json" {
-			handler = slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
+			handler = slog.NewJSONHandler(logOutput, &slog.HandlerOptions{
 				Level: level,
 			})
 		} else {
-			handler = tint.NewHandler(os.Stderr, &tint.Options{
+			handler = tint.NewHandler(logOutput, &tint.Options{
 				Level: level,
 			})
 		}
@@ -70,7 +76,7 @@ and processes them according to the latest schema to create a local database.`,
 			return err
 		}
 
-		slog.Info("Configuration",
+		slog.Debug("Configuration",
 			"patch", cfg.Patch,
 			"database", cfg.Database,
 			"languages", cfg.Languages,

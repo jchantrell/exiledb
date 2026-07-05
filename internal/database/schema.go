@@ -423,15 +423,21 @@ func (dm *DDLManager) executeDDLBulk(ctx context.Context, ddlRequests []DDLReque
 	}
 
 	totalTables := len(mainTableRequests) + len(junctionTableRequests)
-	currentProgress := 0
+	created := 0
+	report := func(description string) {
+		created++
+		if progressCallback != nil {
+			progressCallback(created, totalTables, description)
+		}
+	}
 
 	// Execute main tables in single transaction
-	if err := dm.executeDDLTransaction(ctx, mainTableRequests, "main tables", progressCallback, &currentProgress, totalTables); err != nil {
+	if err := dm.executeDDLTransaction(ctx, mainTableRequests, "main tables", report); err != nil {
 		return fmt.Errorf("executing main tables: %w", err)
 	}
 
 	// Execute junction tables in single transaction
-	if err := dm.executeDDLTransaction(ctx, junctionTableRequests, "junction tables", progressCallback, &currentProgress, totalTables); err != nil {
+	if err := dm.executeDDLTransaction(ctx, junctionTableRequests, "junction tables", report); err != nil {
 		return fmt.Errorf("executing junction tables: %w", err)
 	}
 
@@ -439,7 +445,7 @@ func (dm *DDLManager) executeDDLBulk(ctx context.Context, ddlRequests []DDLReque
 }
 
 // executeDDLTransaction executes DDL statements in a single transaction with progress reporting
-func (dm *DDLManager) executeDDLTransaction(ctx context.Context, ddlRequests []DDLRequest, description string, progressCallback SchemaProgressCallback, currentProgress *int, totalTables int) error {
+func (dm *DDLManager) executeDDLTransaction(ctx context.Context, ddlRequests []DDLRequest, description string, report func(description string)) error {
 	if len(ddlRequests) == 0 {
 		return nil
 	}
@@ -457,11 +463,7 @@ func (dm *DDLManager) executeDDLTransaction(ctx context.Context, ddlRequests []D
 			return fmt.Errorf("executing DDL for %s in %s: %w", req.TableName, description, err)
 		}
 
-		// Update progress after each table schema is created
-		if progressCallback != nil {
-			*currentProgress++
-			progressCallback(*currentProgress, totalTables, req.Description)
-		}
+		report(req.Description)
 	}
 
 	// Commit the transaction

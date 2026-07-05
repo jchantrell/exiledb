@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"runtime"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/jchantrell/exiledb/internal/dat"
 	"github.com/jchantrell/exiledb/internal/database"
 	"github.com/jchantrell/exiledb/internal/export"
+	"github.com/jchantrell/exiledb/internal/ui"
 	"github.com/jchantrell/exiledb/internal/utils"
 	"github.com/spf13/cobra"
 )
@@ -51,6 +53,11 @@ Use --ggpk to extract directly from a Content.ggpk file instead of downloading f
 
 		noProgress, _ := cmd.Flags().GetBool("no-progress")
 		showProgress := !(noProgress || cfg.LogFormat == "json" || cfg.LogLevel == "debug")
+
+		progress := ui.NewProgress(showProgress)
+		logOutput.Swap(progress.LogWriter())
+		defer progress.Close()
+		defer logOutput.Swap(os.Stderr)
 
 		slog.Info("Starting extract...", "languages", cfg.Languages)
 
@@ -106,7 +113,7 @@ Use --ggpk to extract directly from a Content.ggpk file instead of downloading f
 				return nil
 			}
 
-			if err := cdn.DownloadBundles(c, cfg.Patch, gameVersion, requiredBundles, forceDownload, showProgress); err != nil {
+			if err := cdn.DownloadBundles(c, cfg.Patch, gameVersion, requiredBundles, forceDownload, progress.Phase()); err != nil {
 				return fmt.Errorf("downloading bundles: %w", err)
 			}
 
@@ -147,18 +154,10 @@ Use --ggpk to extract directly from a Content.ggpk file instead of downloading f
 
 			slog.Info("Creating database schemas", "count", totalTables)
 
-			schemaProgress := utils.NewProgress(totalTables, showProgress)
-			schemaProgressCallback := func(current int, total int, description string) {
-				schemaProgress.Update(current, description)
-			}
-
 			ddlManager := database.NewDDLManager(db)
-			if err := ddlManager.CreateSchemas(context.Background(), datSchemas, schemaProgressCallback); err != nil {
-				schemaProgress.Finish()
+			if err := ddlManager.CreateSchemas(context.Background(), datSchemas, progress.Phase()); err != nil {
 				return fmt.Errorf("creating schemas: %w", err)
 			}
-
-			schemaProgress.Finish()
 
 			slog.Info("Inserting dat files", "count", totalSchemas)
 			bulkInsertOptions := &database.BulkInsertOptions{
@@ -168,7 +167,7 @@ Use --ggpk to extract directly from a Content.ggpk file instead of downloading f
 			}
 			bulkInserter := database.NewBulkInserter(db, bulkInsertOptions)
 
-			insertProgress := utils.NewProgress(totalSchemas, showProgress)
+			insertProgress := progress.Phase()
 			processedCount := 0
 			for _, datSchema := range datSchemas {
 				select {
@@ -179,7 +178,7 @@ Use --ggpk to extract directly from a Content.ggpk file instead of downloading f
 				}
 
 				processedCount++
-				insertProgress.Update(processedCount, datSchema.Name)
+				insertProgress(processedCount, totalSchemas, datSchema.Name)
 
 				for _, language := range cfg.Languages {
 					basePath := utils.DatPath(cfg.Patch, datSchema.Name, ext)
@@ -243,8 +242,6 @@ Use --ggpk to extract directly from a Content.ggpk file instead of downloading f
 				}
 				stats.ProcessedTables++
 			}
-
-			insertProgress.Finish()
 		}
 
 		if len(cfg.Files) > 0 {
@@ -254,16 +251,9 @@ Use --ggpk to extract directly from a Content.ggpk file instead of downloading f
 			outputDir := filepath.Join(".", "files")
 			exporter := export.NewExporter(bundleManager, outputDir)
 
-			fileProgress := utils.NewProgress(len(expandedFiles), showProgress)
-			fileProgressCallback := func(current int, total int, description string) {
-				fileProgress.Update(current, description)
-			}
-
-			if err := exporter.ExportFiles(expandedFiles, fileProgressCallback); err != nil {
-				fileProgress.Finish()
+			if err := exporter.ExportFiles(expandedFiles, progress.Phase()); err != nil {
 				slog.Error("Failed to export files", "error", err)
 			} else {
-				fileProgress.Finish()
 				stats.FilesExported = len(expandedFiles)
 			}
 		}
