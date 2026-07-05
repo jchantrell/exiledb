@@ -1,4 +1,4 @@
-package main
+package upgrade
 
 import (
 	"net/http"
@@ -58,18 +58,18 @@ func TestCompareVersions(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		got, err := compareVersions(tt.a, tt.b)
+		got, err := CompareVersions(tt.a, tt.b)
 		if err != nil {
-			t.Errorf("compareVersions(%q, %q): unexpected error: %v", tt.a, tt.b, err)
+			t.Errorf("CompareVersions(%q, %q): unexpected error: %v", tt.a, tt.b, err)
 			continue
 		}
 		if got != tt.want {
-			t.Errorf("compareVersions(%q, %q) = %d, want %d", tt.a, tt.b, got, tt.want)
+			t.Errorf("CompareVersions(%q, %q) = %d, want %d", tt.a, tt.b, got, tt.want)
 		}
 	}
 
-	if _, err := compareVersions("dev", "v1.5.0"); err == nil {
-		t.Error("compareVersions(dev, v1.5.0): expected error")
+	if _, err := CompareVersions("dev", "v1.5.0"); err == nil {
+		t.Error("CompareVersions(dev, v1.5.0): expected error")
 	}
 }
 
@@ -90,7 +90,7 @@ func TestAssetName(t *testing.T) {
 }
 
 func TestFindAsset(t *testing.T) {
-	assets := []releaseAsset{
+	assets := []Asset{
 		{Name: "exiledb-linux-amd64", BrowserDownloadURL: "https://example.com/linux"},
 		{Name: "exiledb-windows-amd64.exe", BrowserDownloadURL: "https://example.com/windows"},
 		{Name: "manifest.txt", BrowserDownloadURL: "https://example.com/manifest"},
