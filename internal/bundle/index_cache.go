@@ -11,17 +11,18 @@ import (
 )
 
 const (
-	cacheMagic   = "EIDX"
-	cacheVersion = uint32(2)
+	cacheMagic    = "EIDX"
+	cacheVersion  = uint32(3)
+	cacheHashSeed = uint64(0x6578696c65646230)
 )
 
 // LoadIndexCached parses compressed index data, using an on-disk cache at
 // cachePath (if non-empty) to skip the parse when the source is unchanged.
 func LoadIndexCached(compressedData []byte, cachePath string) (*Index, error) {
-	sourceLen := int64(len(compressedData))
+	sourceHash := MurmurHash64A(compressedData, cacheHashSeed)
 
 	if cachePath != "" {
-		idx, err := readIndexCache(cachePath, sourceLen)
+		idx, err := readIndexCache(cachePath, sourceHash)
 		if err == nil {
 			slog.Debug("Loaded index from cache", "path", cachePath)
 			return idx, nil
@@ -35,7 +36,7 @@ func LoadIndexCached(compressedData []byte, cachePath string) (*Index, error) {
 	}
 
 	if cachePath != "" {
-		if err := writeIndexCache(cachePath, sourceLen, idx); err != nil {
+		if err := writeIndexCache(cachePath, sourceHash, idx); err != nil {
 			slog.Debug("Failed to write index cache", "path", cachePath, "error", err)
 		}
 	}
@@ -43,7 +44,7 @@ func LoadIndexCached(compressedData []byte, cachePath string) (*Index, error) {
 	return idx, nil
 }
 
-func readIndexCache(cachePath string, expectedSourceLen int64) (*Index, error) {
+func readIndexCache(cachePath string, expectedSourceHash uint64) (*Index, error) {
 	f, err := os.Open(cachePath)
 	if err != nil {
 		return nil, err
@@ -60,7 +61,7 @@ func readIndexCache(cachePath string, expectedSourceLen int64) (*Index, error) {
 	if binary.LittleEndian.Uint32(header[4:8]) != cacheVersion {
 		return nil, fmt.Errorf("cache version mismatch")
 	}
-	if int64(binary.LittleEndian.Uint64(header[8:16])) != expectedSourceLen {
+	if binary.LittleEndian.Uint64(header[8:16]) != expectedSourceHash {
 		return nil, fmt.Errorf("source data changed")
 	}
 
@@ -128,7 +129,7 @@ func readIndexCache(cachePath string, expectedSourceLen int64) (*Index, error) {
 	return &Index{bundles: bundles, files: files}, nil
 }
 
-func writeIndexCache(cachePath string, sourceLen int64, idx *Index) error {
+func writeIndexCache(cachePath string, sourceHash uint64, idx *Index) error {
 	tmpPath := cachePath + ".tmp"
 	f, err := os.Create(tmpPath)
 	if err != nil {
@@ -140,7 +141,7 @@ func writeIndexCache(cachePath string, sourceLen int64, idx *Index) error {
 	var header [16]byte
 	copy(header[0:4], cacheMagic)
 	binary.LittleEndian.PutUint32(header[4:8], cacheVersion)
-	binary.LittleEndian.PutUint64(header[8:16], uint64(sourceLen))
+	binary.LittleEndian.PutUint64(header[8:16], sourceHash)
 	w.Write(header[:])
 
 	var buf [8]byte
