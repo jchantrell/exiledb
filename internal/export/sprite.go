@@ -24,16 +24,16 @@ type SpriteList struct {
 
 var SpriteLists = []SpriteList{
 	{
-		Path:       "Art/UIImages1.txt",
-		NamePrefix: "Art/2DArt/UIImages/",
+		Path:       "art/uiimages1.txt",
+		NamePrefix: "art/2dart/uiimages/",
 	},
 	{
-		Path:       "Art/UIDivinationImages.txt",
-		NamePrefix: "Art/2DItems/Divination/Images/",
+		Path:       "art/uidivinationimages.txt",
+		NamePrefix: "art/2ditems/divination/images/",
 	},
 	{
-		Path:       "Art/UIShopImages.txt",
-		NamePrefix: "Art/2DArt/Shop/",
+		Path:       "art/uishopimages.txt",
+		NamePrefix: "art/2dart/shop/",
 	},
 }
 
@@ -91,8 +91,8 @@ func parseSpriteText(text string) ([]SpriteImage, error) {
 		}
 
 		sprites = append(sprites, SpriteImage{
-			Name:       matches[1],
-			SpritePath: matches[2],
+			Name:       strings.ToLower(matches[1]),
+			SpritePath: strings.ToLower(matches[2]),
 			Left:       left,
 			Top:        top,
 			Width:      right - left + 1,

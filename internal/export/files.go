@@ -58,6 +58,8 @@ func (e *Exporter) ExportFiles(ctx context.Context, files []string, progressCall
 		return 0, fmt.Errorf("creating output directory: %w", err)
 	}
 
+	files = lowerPaths(files)
+
 	var spriteFiles, regularFiles []string
 	for _, file := range files {
 		if IsInsideSprite(file) {
@@ -117,6 +119,8 @@ func (e *Exporter) spriteIndex() (map[string]*SpriteImage, error) {
 
 func ResolveSpriteSheets(loader FileLoader, files []string) ([]string, error) {
 	e := &Exporter{loader: loader}
+
+	files = lowerPaths(files)
 
 	needed := false
 	for _, f := range files {
@@ -247,8 +251,7 @@ func (e *Exporter) exportRegularFiles(ctx context.Context, regularFiles []string
 	g.SetLimit(runtime.GOMAXPROCS(0))
 
 	for _, filePath := range regularFiles {
-		lower := strings.ToLower(filePath)
-		isDDS := strings.HasSuffix(lower, ".dds")
+		isDDS := strings.HasSuffix(filePath, ".dds")
 
 		var outputPath string
 		if isDDS {
@@ -289,7 +292,7 @@ func (e *Exporter) exportRegularFiles(ctx context.Context, regularFiles []string
 			}
 
 			data := fileData
-			if strings.HasSuffix(lower, ".txt") || strings.HasSuffix(lower, ".text") {
+			if strings.HasSuffix(filePath, ".txt") || strings.HasSuffix(filePath, ".text") {
 				text, err := DecodeUTF16LE(data)
 				if err != nil {
 					slog.Debug("Text file is not UTF-16LE, writing as-is", "path", filePath, "error", err)
@@ -297,7 +300,7 @@ func (e *Exporter) exportRegularFiles(ctx context.Context, regularFiles []string
 					data = []byte(text)
 					slog.Debug("Decoded text file to UTF-8", "path", filePath, "output", outputPath)
 				}
-			} else if strings.HasSuffix(lower, ".ast") {
+			} else if strings.HasSuffix(filePath, ".ast") {
 				decompressed, err := DecompressAST(data)
 				if err != nil {
 					slog.Warn("AST decompression failed, writing as-is", "path", filePath, "error", err)
@@ -330,4 +333,12 @@ func (e *Exporter) exportRegularFiles(ctx context.Context, regularFiles []string
 
 func sanitizePath(path string) string {
 	return strings.ReplaceAll(path, "/", "@")
+}
+
+func lowerPaths(paths []string) []string {
+	lowered := make([]string, len(paths))
+	for i, p := range paths {
+		lowered[i] = strings.ToLower(p)
+	}
+	return lowered
 }
