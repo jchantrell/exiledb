@@ -5,11 +5,14 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"log/slog"
 	"sort"
 	"strings"
 )
 
-type bundleIndex struct {
+// Index is the parsed bundle index: which bundles exist and where each file
+// lives within them. File paths are kept case-fold sorted for binary search.
+type Index struct {
 	bundles []string
 	files   []bundleFileInfo
 }
@@ -27,7 +30,7 @@ type bundlePathrep struct {
 	recursiveSize uint32
 }
 
-func loadBundleIndex(indexFile io.ReaderAt) (bundleIndex, error) {
+func loadBundleIndex(indexFile io.ReaderAt) (*Index, error) {
 	// Try to determine if this is compressed bundle data or raw index data
 	// by attempting to read it as a bundle first
 	indexBundle, err := OpenBundle(indexFile)
@@ -39,14 +42,14 @@ func loadBundleIndex(indexFile io.ReaderAt) (bundleIndex, error) {
 	// Successfully parsed as bundle - decompress it
 	indexData := make([]byte, indexBundle.Size())
 	if _, err := indexBundle.ReadAt(indexData, 0); err != nil {
-		return bundleIndex{}, fmt.Errorf("unable to read index bundle: %w", err)
+		return nil, fmt.Errorf("unable to read index bundle: %w", err)
 	}
 
 	// Parse the decompressed data
 	return loadBundleIndexFromRawData(bytes.NewReader(indexData))
 }
 
-func loadBundleIndexFromRawData(indexFile io.ReaderAt) (bundleIndex, error) {
+func loadBundleIndexFromRawData(indexFile io.ReaderAt) (*Index, error) {
 	// Read all the raw index data
 	var indexData []byte
 	var offset int64 = 0
@@ -55,7 +58,7 @@ func loadBundleIndexFromRawData(indexFile io.ReaderAt) (bundleIndex, error) {
 	for {
 		n, err := indexFile.ReadAt(buf, offset)
 		if err != nil && err != io.EOF {
-			return bundleIndex{}, fmt.Errorf("unable to read index data: %w", err)
+			return nil, fmt.Errorf("unable to read index data: %w", err)
 		}
 		indexData = append(indexData, buf[:n]...)
 		if err == io.EOF || n == 0 {
@@ -64,83 +67,106 @@ func loadBundleIndexFromRawData(indexFile io.ReaderAt) (bundleIndex, error) {
 		offset += int64(n)
 	}
 
-	p := 0
+	cur := &byteCursor{data: indexData}
 
-	// Check if we have enough data to read at least the bundle count
-	if len(indexData) < 4 {
-		return bundleIndex{}, fmt.Errorf("index data too small: got %d bytes, need at least 4", len(indexData))
+	bundleCount, err := cur.uint32()
+	if err != nil {
+		return nil, fmt.Errorf("reading bundle count: %w", err)
 	}
-
-	bundleCount := binary.LittleEndian.Uint32(indexData[p:])
-	p += 4
+	if int64(bundleCount)*8 > int64(cur.remaining()) {
+		return nil, fmt.Errorf("bundle count %d exceeds index data size", bundleCount)
+	}
 
 	bundles := make([]string, bundleCount)
 	for i := range bundles {
-		nameLen := int(binary.LittleEndian.Uint32(indexData[p:]))
-		p += 4
-
-		name := string(indexData[p : p+nameLen])
-		p += nameLen
-
+		nameLen, err := cur.uint32()
+		if err != nil {
+			return nil, fmt.Errorf("reading bundle %d name length: %w", i, err)
+		}
+		name, err := cur.take(int(nameLen))
+		if err != nil {
+			return nil, fmt.Errorf("reading bundle %d name: %w", i, err)
+		}
 		// skip uncompressed size -- available elsewhere
-		p += 4
-
-		bundles[i] = name
+		if _, err := cur.take(4); err != nil {
+			return nil, fmt.Errorf("reading bundle %d size: %w", i, err)
+		}
+		bundles[i] = string(name)
 	}
 
-	fileCount := binary.LittleEndian.Uint32(indexData[p:])
-	p += 4
+	fileCount, err := cur.uint32()
+	if err != nil {
+		return nil, fmt.Errorf("reading file count: %w", err)
+	}
+	if int64(fileCount)*20 > int64(cur.remaining()) {
+		return nil, fmt.Errorf("file count %d exceeds index data size", fileCount)
+	}
 
 	files := make([]bundleFileInfo, fileCount)
 	filemap := make(map[uint64]int, fileCount)
 	for i := 0; i < int(fileCount); i++ {
-		hash := binary.LittleEndian.Uint64(indexData[p+0:])
-		files[i] = bundleFileInfo{
-			bundleId: binary.LittleEndian.Uint32(indexData[p+8:]),
-			offset:   binary.LittleEndian.Uint32(indexData[p+12:]),
-			size:     binary.LittleEndian.Uint32(indexData[p+16:]),
+		rec, err := cur.take(20)
+		if err != nil {
+			return nil, fmt.Errorf("reading file record %d: %w", i, err)
 		}
-		p += 20
+		hash := binary.LittleEndian.Uint64(rec[0:])
+		files[i] = bundleFileInfo{
+			bundleId: binary.LittleEndian.Uint32(rec[8:]),
+			offset:   binary.LittleEndian.Uint32(rec[12:]),
+			size:     binary.LittleEndian.Uint32(rec[16:]),
+		}
 		if _, exists := filemap[hash]; exists {
-			panic("duplicate filemap hash")
+			return nil, fmt.Errorf("duplicate filemap hash %016x at record %d", hash, i)
 		}
 		filemap[hash] = i
 	}
 
-	pathrepCount := binary.LittleEndian.Uint32(indexData[p:])
-	p += 4
+	pathrepCount, err := cur.uint32()
+	if err != nil {
+		return nil, fmt.Errorf("reading pathrep count: %w", err)
+	}
+	if int64(pathrepCount)*20 > int64(cur.remaining()) {
+		return nil, fmt.Errorf("pathrep count %d exceeds index data size", pathrepCount)
+	}
 
 	pathmap := make(map[uint64]bundlePathrep, pathrepCount)
 	for i := uint32(0); i < pathrepCount; i++ {
-		hash := binary.LittleEndian.Uint64(indexData[p+0:])
-		pr := bundlePathrep{
-			offset:        binary.LittleEndian.Uint32(indexData[p+8:]),
-			size:          binary.LittleEndian.Uint32(indexData[p+12:]),
-			recursiveSize: binary.LittleEndian.Uint32(indexData[p+16:]),
+		rec, err := cur.take(20)
+		if err != nil {
+			return nil, fmt.Errorf("reading pathrep record %d: %w", i, err)
 		}
-		p += 20
+		hash := binary.LittleEndian.Uint64(rec[0:])
+		pr := bundlePathrep{
+			offset:        binary.LittleEndian.Uint32(rec[8:]),
+			size:          binary.LittleEndian.Uint32(rec[12:]),
+			recursiveSize: binary.LittleEndian.Uint32(rec[16:]),
+		}
 		if _, exists := pathmap[hash]; exists {
-			panic("duplicate pathmap hash")
+			return nil, fmt.Errorf("duplicate pathmap hash %016x at record %d", hash, i)
 		}
 		pathmap[hash] = pr
 	}
 
-	if p >= len(indexData) {
-		return bundleIndex{}, fmt.Errorf("pathrep bundle offset %d exceeds data length %d", p, len(indexData))
+	if cur.remaining() == 0 {
+		return nil, fmt.Errorf("pathrep bundle offset %d exceeds data length %d", cur.pos, len(indexData))
 	}
 
-	pathrepBundle, err := OpenBundle(bytes.NewReader(indexData[p:]))
+	pathrepBundle, err := OpenBundle(bytes.NewReader(indexData[cur.pos:]))
 	if err != nil {
-		return bundleIndex{}, fmt.Errorf("unable to read pathrep bundle at offset %d: %w", p, err)
+		return nil, fmt.Errorf("unable to read pathrep bundle at offset %d: %w", cur.pos, err)
 	}
 
 	pathData := make([]byte, pathrepBundle.Size())
 	if _, err := pathrepBundle.ReadAt(pathData, 0); err != nil {
-		return bundleIndex{}, fmt.Errorf("unable to read pathrep bundle: %w", err)
+		return nil, fmt.Errorf("unable to read pathrep bundle: %w", err)
 	}
 
 	for _, pr := range pathmap {
-		data := pathData[pr.offset : pr.offset+pr.size]
+		end := int64(pr.offset) + int64(pr.size)
+		if end > int64(len(pathData)) {
+			return nil, fmt.Errorf("pathrep span [%d:%d] exceeds path data size %d", pr.offset, end, len(pathData))
+		}
+		data := pathData[pr.offset:end]
 		paths := readPathspec(data)
 		for _, path := range paths {
 			// Try modern hash first (MurmurHash64A for PoE ≥3.21.2)
@@ -162,14 +188,59 @@ func loadBundleIndexFromRawData(indexFile io.ReaderAt) (bundleIndex, error) {
 		}
 	}
 
+	// Files whose hash matched no pathrep entry have no path; drop them so
+	// they cannot pollute listings or match empty-string lookups.
+	matched := files[:0]
+	unmatched := 0
+	for _, f := range files {
+		if f.path == "" {
+			unmatched++
+			continue
+		}
+		matched = append(matched, f)
+	}
+	files = matched
+	if unmatched > 0 {
+		slog.Warn("Dropping index files with no matching path", "count", unmatched)
+	}
+
+	// Lookups binary-search with a case-folded predicate, so the sort order
+	// must use the same fold or the search invariant breaks on mixed-case
+	// (legacy) indices.
 	sort.Slice(files, func(i, j int) bool {
-		return files[i].path < files[j].path
+		return strings.ToLower(files[i].path) < strings.ToLower(files[j].path)
 	})
 
-	return bundleIndex{
+	return &Index{
 		bundles: bundles,
 		files:   files,
 	}, nil
+}
+
+// byteCursor is a bounds-checked reader over the raw index data; every read
+// returns an error instead of panicking on truncated or corrupt input.
+type byteCursor struct {
+	data []byte
+	pos  int
+}
+
+func (c *byteCursor) remaining() int { return len(c.data) - c.pos }
+
+func (c *byteCursor) take(n int) ([]byte, error) {
+	if n < 0 || n > c.remaining() {
+		return nil, fmt.Errorf("index truncated: need %d bytes at offset %d, have %d", n, c.pos, c.remaining())
+	}
+	b := c.data[c.pos : c.pos+n]
+	c.pos += n
+	return b, nil
+}
+
+func (c *byteCursor) uint32() (uint32, error) {
+	b, err := c.take(4)
+	if err != nil {
+		return 0, err
+	}
+	return binary.LittleEndian.Uint32(b), nil
 }
 
 func readPathspec(data []byte) []string {
@@ -200,8 +271,6 @@ func readPathspec(data []byte) []string {
 	return output
 }
 
-// GetFileInfo finds a file in the index and returns its location info
-
 func readPathspecString(data []byte, offset *int) string {
 	p := *offset
 	for p < len(data) && data[p] != 0 {
@@ -212,71 +281,57 @@ func readPathspecString(data []byte, offset *int) string {
 	return s
 }
 
-// LoadIndex parses index data and returns an Index interface
-func LoadIndex(data []byte) (Index, error) {
-	reader := bytes.NewReader(data)
-	internal, err := loadBundleIndex(reader)
-	if err != nil {
-		return nil, fmt.Errorf("loading bundle index: %w", err)
-	}
-
-	return &indexImpl{internal: internal}, nil
-}
-
-// indexImpl is a concrete implementation of the Index interface
-type indexImpl struct {
-	internal bundleIndex
-}
-
-// GetFileInfo returns information about a file, including which bundle contains it
-// Path lookup is case-insensitive
-func (idx *indexImpl) GetFileInfo(path string) (*FileLocation, error) {
-	files := idx.internal.files
+// find binary-searches for a file by path (case-insensitive) and returns its
+// entry, or nil if not present.
+func (idx *Index) find(path string) *bundleFileInfo {
+	files := idx.files
 	lowerPath := strings.ToLower(path)
 
-	// Binary search for the file (case-insensitive)
 	i := sort.Search(len(files), func(i int) bool {
 		return strings.ToLower(files[i].path) >= lowerPath
 	})
 
 	if i < len(files) && strings.ToLower(files[i].path) == lowerPath {
-		file := &files[i]
-		return &FileLocation{
-			BundleName: idx.internal.bundles[file.bundleId],
-			Offset:     file.offset,
-			Size:       file.size,
-		}, nil
+		return &files[i]
 	}
-
-	return nil, fmt.Errorf("file not found: %s", path)
+	return nil
 }
 
-// ListBundles returns all bundle names in the index
-func (idx *indexImpl) ListBundles() []string {
-	return idx.internal.bundles
+// GetFileInfo returns information about a file, including which bundle contains it.
+// Path lookup is case-insensitive.
+func (idx *Index) GetFileInfo(path string) (*FileLocation, error) {
+	file := idx.find(path)
+	if file == nil {
+		return nil, fmt.Errorf("file not found: %s", path)
+	}
+	return &FileLocation{
+		BundleName: idx.bundles[file.bundleId],
+		Offset:     file.offset,
+		Size:       file.size,
+	}, nil
 }
 
 // ListFiles returns all file paths in the index
-func (idx *indexImpl) ListFiles() []string {
-	files := make([]string, len(idx.internal.files))
-	for i, file := range idx.internal.files {
+func (idx *Index) ListFiles() []string {
+	files := make([]string, len(idx.files))
+	for i, file := range idx.files {
 		files[i] = file.path
 	}
 	return files
 }
 
 // ListFileEntries returns all file paths with their uncompressed sizes
-func (idx *indexImpl) ListFileEntries() []FileEntry {
-	entries := make([]FileEntry, len(idx.internal.files))
-	for i, file := range idx.internal.files {
+func (idx *Index) ListFileEntries() []FileEntry {
+	entries := make([]FileEntry, len(idx.files))
+	for i, file := range idx.files {
 		entries[i] = FileEntry{Path: file.path, Size: file.size}
 	}
 	return entries
 }
 
 // ListFilesWithPrefix returns all files whose path starts with the given prefix (case-insensitive)
-func (idx *indexImpl) ListFilesWithPrefix(prefix string) []string {
-	files := idx.internal.files
+func (idx *Index) ListFilesWithPrefix(prefix string) []string {
+	files := idx.files
 	lowerPrefix := strings.ToLower(prefix)
 	if !strings.HasSuffix(lowerPrefix, "/") {
 		lowerPrefix += "/"
@@ -295,4 +350,24 @@ func (idx *indexImpl) ListFilesWithPrefix(prefix string) []string {
 		result = append(result, files[i].path)
 	}
 	return result
+}
+
+// ExpandFilePaths expands a list of paths, replacing directory prefixes with all
+// files under them. Exact file matches are kept as-is; paths that match neither
+// a file nor a directory prefix pass through unchanged.
+func (idx *Index) ExpandFilePaths(paths []string) []string {
+	var expanded []string
+	for _, p := range paths {
+		if idx.find(p) != nil {
+			expanded = append(expanded, p)
+			continue
+		}
+		children := idx.ListFilesWithPrefix(p)
+		if len(children) > 0 {
+			expanded = append(expanded, children...)
+		} else {
+			expanded = append(expanded, p)
+		}
+	}
+	return expanded
 }

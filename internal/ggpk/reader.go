@@ -51,79 +51,72 @@ func (r *Reader) Close() error {
 // Path components are separated by '/'. Lookup is case-insensitive.
 func (r *Reader) FindFile(path string) (*FileRecord, error) {
 	parts := strings.Split(path, "/")
-	if len(parts) == 0 {
-		return nil, fmt.Errorf("empty path")
-	}
+	last := len(parts) - 1
 
 	currentOffset := r.RootOffset
-
-	for i, part := range parts {
-		dir, err := readDirectoryRecord(r.file, currentOffset, r.Version)
+	for _, part := range parts[:last] {
+		dirOffset, file, err := r.findChild(currentOffset, part)
 		if err != nil {
-			return nil, fmt.Errorf("reading directory at offset %d: %w", currentOffset, err)
+			return nil, err
+		}
+		if dirOffset == 0 && file == nil {
+			return nil, fmt.Errorf("path component %q not found in %q", part, path)
+		}
+		if file != nil {
+			return nil, fmt.Errorf("path component %q is a file, not a directory", part)
+		}
+		currentOffset = dirOffset
+	}
+
+	dirOffset, file, err := r.findChild(currentOffset, parts[last])
+	if err != nil {
+		return nil, err
+	}
+	if dirOffset == 0 && file == nil {
+		return nil, fmt.Errorf("path component %q not found in %q", parts[last], path)
+	}
+	if file == nil {
+		return nil, fmt.Errorf("%q is a directory, not a file", path)
+	}
+	return file, nil
+}
+
+// findChild scans the directory at dirOffset for an entry named name
+// (case-insensitive). A directory match returns its offset; a file match
+// returns the parsed record. Both zero values mean the name was not found.
+func (r *Reader) findChild(dirOffset uint64, name string) (uint64, *FileRecord, error) {
+	dir, err := readDirectoryRecord(r.file, dirOffset, r.Version)
+	if err != nil {
+		return 0, nil, fmt.Errorf("reading directory at offset %d: %w", dirOffset, err)
+	}
+
+	for _, entry := range dir.Entries {
+		header, err := readRecordHeader(r.file, entry.Offset)
+		if err != nil {
+			continue
 		}
 
-		var foundOffset uint64
-		var isFile bool
-		found := false
-
-		for _, entry := range dir.Entries {
-			header, err := readRecordHeader(r.file, entry.Offset)
+		switch header.Tag {
+		case TagPDIR:
+			subDir, err := readDirectoryRecord(r.file, entry.Offset, r.Version)
 			if err != nil {
 				continue
 			}
-
-			switch header.Tag {
-			case TagPDIR:
-				subDir, err := readDirectoryRecord(r.file, entry.Offset, r.Version)
-				if err != nil {
-					continue
-				}
-				if strings.EqualFold(subDir.Name, part) {
-					foundOffset = entry.Offset
-					found = true
-				}
-			case TagFILE:
-				file, err := readFileRecord(r.file, entry.Offset, r.Version)
-				if err != nil {
-					continue
-				}
-				if strings.EqualFold(file.Name, part) {
-					foundOffset = entry.Offset
-					isFile = true
-					found = true
-				}
+			if strings.EqualFold(subDir.Name, name) {
+				return entry.Offset, nil, nil
 			}
-
-			if found {
-				break
-			}
-		}
-
-		if !found {
-			return nil, fmt.Errorf("path component %q not found in %q", part, path)
-		}
-
-		isLastPart := i == len(parts)-1
-
-		if isLastPart {
-			if !isFile {
-				return nil, fmt.Errorf("%q is a directory, not a file", path)
-			}
-			rec, err := readFileRecord(r.file, foundOffset, r.Version)
+		case TagFILE:
+			file, err := readFileRecord(r.file, entry.Offset, r.Version)
 			if err != nil {
-				return nil, err
+				continue
 			}
-			return &rec, nil
+			if strings.EqualFold(file.Name, name) {
+				return 0, &file, nil
+			}
 		}
-
-		if isFile {
-			return nil, fmt.Errorf("path component %q is a file, not a directory", part)
-		}
-		currentOffset = foundOffset
 	}
 
-	return nil, fmt.Errorf("file not found: %s", path)
+	return 0, nil, nil
 }
 
 // ReadFileData reads the raw data bytes of a file record.
@@ -139,72 +132,4 @@ func (r *Reader) ReadFileData(rec *FileRecord) ([]byte, error) {
 // FileReaderAt returns an io.ReaderAt scoped to the file's data region within the GGPK.
 func (r *Reader) FileReaderAt(rec *FileRecord) io.ReaderAt {
 	return io.NewSectionReader(r.file, int64(rec.DataOffset), int64(rec.DataLength))
-}
-
-// ListDirectory returns entries at a given path in the GGPK tree.
-func (r *Reader) ListDirectory(path string) (dirs []string, files []string, err error) {
-	currentOffset := r.RootOffset
-
-	if path != "" {
-		parts := strings.Split(path, "/")
-		for _, part := range parts {
-			if part == "" {
-				continue
-			}
-			dir, err := readDirectoryRecord(r.file, currentOffset, r.Version)
-			if err != nil {
-				return nil, nil, fmt.Errorf("reading directory: %w", err)
-			}
-
-			found := false
-			for _, entry := range dir.Entries {
-				header, err := readRecordHeader(r.file, entry.Offset)
-				if err != nil {
-					continue
-				}
-				if header.Tag == TagPDIR {
-					subDir, err := readDirectoryRecord(r.file, entry.Offset, r.Version)
-					if err != nil {
-						continue
-					}
-					if strings.EqualFold(subDir.Name, part) {
-						currentOffset = entry.Offset
-						found = true
-						break
-					}
-				}
-			}
-			if !found {
-				return nil, nil, fmt.Errorf("directory %q not found", part)
-			}
-		}
-	}
-
-	dir, err := readDirectoryRecord(r.file, currentOffset, r.Version)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	for _, entry := range dir.Entries {
-		header, err := readRecordHeader(r.file, entry.Offset)
-		if err != nil {
-			continue
-		}
-		switch header.Tag {
-		case TagPDIR:
-			subDir, err := readDirectoryRecord(r.file, entry.Offset, r.Version)
-			if err != nil {
-				continue
-			}
-			dirs = append(dirs, subDir.Name)
-		case TagFILE:
-			file, err := readFileRecord(r.file, entry.Offset, r.Version)
-			if err != nil {
-				continue
-			}
-			files = append(files, file.Name)
-		}
-	}
-
-	return dirs, files, nil
 }

@@ -3,6 +3,7 @@ package bundle
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -112,11 +113,16 @@ func (s *CacheSource) IndexCachePath() string {
 }
 
 func (s *CacheSource) Close() error {
-	for _, cached := range s.bundleCache {
-		cached.file.Close()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var errs []error
+	for name, cached := range s.bundleCache {
+		if err := cached.file.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("closing bundle %s: %w", name, err))
+		}
 	}
 	s.bundleCache = nil
-	return nil
+	return errors.Join(errs...)
 }
 
 // GgpkSource reads bundles from within a GGPK archive file.

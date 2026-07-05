@@ -1,64 +1,27 @@
 package bundle
 
 import (
-	"fmt"
-	"io"
 	"log/slog"
-	"os"
 	"strings"
 
-	"github.com/jchantrell/exiledb/internal/cache"
 	"github.com/jchantrell/exiledb/internal/export"
-	"github.com/jchantrell/exiledb/internal/utils"
+	"github.com/jchantrell/exiledb/internal/poe"
 )
 
-type BytesReaderAt struct {
-	data []byte
-}
-
-var ext = ".datc64"
-
-func DiscoverRequiredBundles(cache *cache.Cache, patch string, languages []string, tables []string, files []string) ([]string, error) {
-	indexPath := cache.GetIndexPath(patch)
-
-	slog.Info("Reading index file", "path", indexPath)
-	indexData, err := os.ReadFile(indexPath)
-	if err != nil {
-		return nil, fmt.Errorf("reading index file: %w", err)
-	}
-
-	decompressedIndexData, err := DecompressIndexBundle(indexData)
-	if err != nil {
-		return nil, fmt.Errorf("decompressing index bundle: %w", err)
-	}
-
-	index, err := LoadIndex(decompressedIndexData)
-	if err != nil {
-		return nil, fmt.Errorf("parsing index bundle: %w", err)
-	}
-
-	bundleSet := GetBundleSet(index, patch, tables, languages, files)
+// DiscoverRequiredBundles determines which bundles must be downloaded to
+// satisfy the requested tables, languages, and files.
+func DiscoverRequiredBundles(index *Index, patch string, languages []string, tables []string, files []string) []string {
+	bundleSet := getBundleSet(index, patch, tables, languages, files)
 
 	var candidatePaths []string
 	for bundle := range bundleSet {
 		candidatePaths = append(candidatePaths, bundle)
 	}
 
-	return candidatePaths, nil
+	return candidatePaths
 }
 
-func DecompressIndexBundle(data []byte) ([]byte, error) {
-	reader := &BytesReaderAt{data: data}
-
-	b, err := OpenBundle(reader)
-	if err != nil {
-		return nil, fmt.Errorf("opening bundle: %w", err)
-	}
-
-	return b.Read()
-}
-
-func GetBundleSet(index Index, patch string, tables, languages []string, files []string) map[string]bool {
+func getBundleSet(index *Index, patch string, tables, languages []string, files []string) map[string]bool {
 	bundleSet := make(map[string]bool)
 	bundleSet["_.index.bin"] = true
 
@@ -67,7 +30,7 @@ func GetBundleSet(index Index, patch string, tables, languages []string, files [
 
 	if len(tables) > 0 {
 		for _, table := range tables {
-			path := utils.DatPath(patch, table, ext)
+			path := poe.DatPath(patch, table, poe.DatExtension)
 			if loc, err := index.GetFileInfo(path); err == nil {
 				bundleSet[loc.BundleName] = true
 			} else {
@@ -78,7 +41,7 @@ func GetBundleSet(index Index, patch string, tables, languages []string, files [
 				if language == "English" {
 					continue
 				}
-				langPath := utils.DatLangPath(patch, language, table, ext)
+				langPath := poe.DatLangPath(patch, language, table, poe.DatExtension)
 				if loc, err := index.GetFileInfo(langPath); err == nil {
 					bundleSet[loc.BundleName] = true
 				}
@@ -87,7 +50,7 @@ func GetBundleSet(index Index, patch string, tables, languages []string, files [
 
 	} else {
 		for _, filePath := range allFiles {
-			if strings.HasPrefix(filePath, "data/") && strings.HasSuffix(filePath, ext) {
+			if strings.HasPrefix(filePath, "data/") && strings.HasSuffix(filePath, poe.DatExtension) {
 				if loc, err := index.GetFileInfo(filePath); err == nil {
 					bundleSet[loc.BundleName] = true
 					datFileCount++
@@ -98,7 +61,7 @@ func GetBundleSet(index Index, patch string, tables, languages []string, files [
 
 	// Add bundles for requested files (expanding directory prefixes)
 	if len(files) > 0 {
-		expandedFiles := expandFilePaths(index, files)
+		expandedFiles := index.ExpandFilePaths(files)
 		needsSpriteIndices := false
 
 		for _, filePath := range expandedFiles {
@@ -126,29 +89,4 @@ func GetBundleSet(index Index, patch string, tables, languages []string, files [
 	}
 
 	return bundleSet
-}
-
-func expandFilePaths(index Index, paths []string) []string {
-	var expanded []string
-	for _, p := range paths {
-		if _, err := index.GetFileInfo(p); err == nil {
-			expanded = append(expanded, p)
-			continue
-		}
-		children := index.ListFilesWithPrefix(p)
-		if len(children) > 0 {
-			expanded = append(expanded, children...)
-		} else {
-			expanded = append(expanded, p)
-		}
-	}
-	return expanded
-}
-
-func (r *BytesReaderAt) ReadAt(p []byte, off int64) (int, error) {
-	if off < 0 || off >= int64(len(r.data)) {
-		return 0, io.EOF
-	}
-	n := copy(p, r.data[off:])
-	return n, nil
 }

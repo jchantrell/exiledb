@@ -84,14 +84,9 @@ func readDirectoryRecord(r io.ReaderAt, offset uint64, version uint32) (Director
 	var hash [32]byte
 	copy(hash[:], fixedBuf[16:48])
 
-	actualNameLen := nameLen - 1
-	var nameByteSize, nullTermSize uint32
-	if version >= 4 {
-		nameByteSize = actualNameLen * 4
-		nullTermSize = 4
-	} else {
-		nameByteSize = actualNameLen * 2
-		nullTermSize = 2
+	nameByteSize, nullTermSize, err := nameSizes(nameLen, version)
+	if err != nil {
+		return DirectoryRecord{}, fmt.Errorf("directory record at %d: %w", offset, err)
 	}
 
 	variableSize := nameByteSize + nullTermSize + entryCount*12
@@ -132,14 +127,9 @@ func readFileRecord(r io.ReaderAt, offset uint64, version uint32) (FileRecord, e
 	var hash [32]byte
 	copy(hash[:], fixedBuf[12:44])
 
-	actualNameLen := nameLen - 1
-	var nameByteSize, nullTermSize uint32
-	if version >= 4 {
-		nameByteSize = actualNameLen * 4
-		nullTermSize = 4
-	} else {
-		nameByteSize = actualNameLen * 2
-		nullTermSize = 2
+	nameByteSize, nullTermSize, err := nameSizes(nameLen, version)
+	if err != nil {
+		return FileRecord{}, fmt.Errorf("file record at %d: %w", offset, err)
 	}
 
 	nameBuf := make([]byte, nameByteSize+nullTermSize)
@@ -150,6 +140,9 @@ func readFileRecord(r io.ReaderAt, offset uint64, version uint32) (FileRecord, e
 	name := decodeString(nameBuf[:nameByteSize], version)
 
 	headerEnd := uint64(44) + uint64(nameByteSize) + uint64(nullTermSize)
+	if uint64(length) < headerEnd {
+		return FileRecord{}, fmt.Errorf("file record at %d: record length %d smaller than header size %d", offset, length, headerEnd)
+	}
 	dataOffset := offset + headerEnd
 	dataLength := uint64(length) - headerEnd
 
@@ -160,6 +153,20 @@ func readFileRecord(r io.ReaderAt, offset uint64, version uint32) (FileRecord, e
 		DataOffset: dataOffset,
 		DataLength: dataLength,
 	}, nil
+}
+
+// nameSizes converts a record's name length (which includes the null
+// terminator, so it must be at least 1) into byte sizes for the record's
+// GGPK version. Guards the uint32 underflow a zero nameLen would cause.
+func nameSizes(nameLen, version uint32) (nameByteSize, nullTermSize uint32, err error) {
+	if nameLen < 1 {
+		return 0, 0, fmt.Errorf("invalid name length %d (must include null terminator)", nameLen)
+	}
+	charSize := uint32(2)
+	if version >= 4 {
+		charSize = 4
+	}
+	return (nameLen - 1) * charSize, charSize, nil
 }
 
 func decodeString(data []byte, version uint32) string {

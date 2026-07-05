@@ -15,15 +15,9 @@ const (
 	cacheVersion = uint32(1)
 )
 
-func LoadIndexCached(compressedData []byte, cachePath string) (Index, error) {
-	idx, err := loadBundleIndexCached(compressedData, cachePath)
-	if err != nil {
-		return nil, err
-	}
-	return &indexImpl{internal: idx}, nil
-}
-
-func loadBundleIndexCached(compressedData []byte, cachePath string) (bundleIndex, error) {
+// LoadIndexCached parses compressed index data, using an on-disk cache at
+// cachePath (if non-empty) to skip the parse when the source is unchanged.
+func LoadIndexCached(compressedData []byte, cachePath string) (*Index, error) {
 	sourceLen := int64(len(compressedData))
 
 	if cachePath != "" {
@@ -37,11 +31,11 @@ func loadBundleIndexCached(compressedData []byte, cachePath string) (bundleIndex
 
 	idx, err := loadBundleIndex(bytes.NewReader(compressedData))
 	if err != nil {
-		return bundleIndex{}, err
+		return nil, err
 	}
 
 	if cachePath != "" {
-		if err := writeIndexCache(cachePath, sourceLen, &idx); err != nil {
+		if err := writeIndexCache(cachePath, sourceLen, idx); err != nil {
 			slog.Debug("Failed to write index cache", "path", cachePath, "error", err)
 		}
 	}
@@ -49,61 +43,61 @@ func loadBundleIndexCached(compressedData []byte, cachePath string) (bundleIndex
 	return idx, nil
 }
 
-func readIndexCache(cachePath string, expectedSourceLen int64) (bundleIndex, error) {
+func readIndexCache(cachePath string, expectedSourceLen int64) (*Index, error) {
 	f, err := os.Open(cachePath)
 	if err != nil {
-		return bundleIndex{}, err
+		return nil, err
 	}
 	defer f.Close()
 
 	var header [16]byte
 	if _, err := io.ReadFull(f, header[:]); err != nil {
-		return bundleIndex{}, fmt.Errorf("reading header: %w", err)
+		return nil, fmt.Errorf("reading header: %w", err)
 	}
 	if string(header[0:4]) != cacheMagic {
-		return bundleIndex{}, fmt.Errorf("invalid cache magic")
+		return nil, fmt.Errorf("invalid cache magic")
 	}
 	if binary.LittleEndian.Uint32(header[4:8]) != cacheVersion {
-		return bundleIndex{}, fmt.Errorf("cache version mismatch")
+		return nil, fmt.Errorf("cache version mismatch")
 	}
 	if int64(binary.LittleEndian.Uint64(header[8:16])) != expectedSourceLen {
-		return bundleIndex{}, fmt.Errorf("source data changed")
+		return nil, fmt.Errorf("source data changed")
 	}
 
 	r := bufio.NewReaderSize(f, 256*1024)
 	var buf [8]byte
 
 	if _, err := io.ReadFull(r, buf[:4]); err != nil {
-		return bundleIndex{}, err
+		return nil, err
 	}
 	bundleCount := int(binary.LittleEndian.Uint32(buf[:4]))
 
 	bundles := make([]string, bundleCount)
 	for i := range bundles {
 		if _, err := io.ReadFull(r, buf[:4]); err != nil {
-			return bundleIndex{}, err
+			return nil, err
 		}
 		nameLen := binary.LittleEndian.Uint32(buf[:4])
 		name := make([]byte, nameLen)
 		if _, err := io.ReadFull(r, name); err != nil {
-			return bundleIndex{}, err
+			return nil, err
 		}
 		bundles[i] = string(name)
 	}
 
 	if _, err := io.ReadFull(r, buf[:4]); err != nil {
-		return bundleIndex{}, err
+		return nil, err
 	}
 	fileCount := int(binary.LittleEndian.Uint32(buf[:4]))
 
 	if _, err := io.ReadFull(r, buf[:8]); err != nil {
-		return bundleIndex{}, err
+		return nil, err
 	}
 	pathBlobSize := binary.LittleEndian.Uint64(buf[:8])
 
 	pathBlob := make([]byte, pathBlobSize)
 	if _, err := io.ReadFull(r, pathBlob); err != nil {
-		return bundleIndex{}, err
+		return nil, err
 	}
 
 	files := make([]bundleFileInfo, fileCount)
@@ -119,7 +113,7 @@ func readIndexCache(cachePath string, expectedSourceLen int64) (bundleIndex, err
 
 	metaBlob := make([]byte, fileCount*12)
 	if _, err := io.ReadFull(r, metaBlob); err != nil {
-		return bundleIndex{}, err
+		return nil, err
 	}
 	for i := range files {
 		off := i * 12
@@ -128,10 +122,10 @@ func readIndexCache(cachePath string, expectedSourceLen int64) (bundleIndex, err
 		files[i].size = binary.LittleEndian.Uint32(metaBlob[off+8:])
 	}
 
-	return bundleIndex{bundles: bundles, files: files}, nil
+	return &Index{bundles: bundles, files: files}, nil
 }
 
-func writeIndexCache(cachePath string, sourceLen int64, idx *bundleIndex) error {
+func writeIndexCache(cachePath string, sourceLen int64, idx *Index) error {
 	tmpPath := cachePath + ".tmp"
 	f, err := os.Create(tmpPath)
 	if err != nil {
