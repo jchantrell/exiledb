@@ -108,4 +108,3 @@ func astHeaderSize(data []byte) (int, error) {
 
 	return off, nil
 }
-

@@ -168,4 +168,3 @@ func (s *GgpkSource) ReadFileFromBundle(bundleName string, offset, size uint32) 
 func (s *GgpkSource) Close() error {
 	return s.reader.Close()
 }
-
