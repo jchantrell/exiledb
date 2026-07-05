@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.5.0](https://github.com/jchantrell/exiledb/compare/v1.4.0...v1.5.0) (2026-07-05)
+
+
+### Features
+
+* add --sizes flag to manifest for uncompressed byte counts ([c063c3a](https://github.com/jchantrell/exiledb/commit/c063c3a637ecf8956b6f8deb80456d2de8821967))
+
+
+### Bug Fixes
+
+* skip empty diff assets, GitHub rejects zero-byte uploads ([222a66b](https://github.com/jchantrell/exiledb/commit/222a66bf660a899afd0a188b62da197ab6c25f04))
+
 ## [1.4.0](https://github.com/jchantrell/exiledb/compare/v1.3.0...v1.4.0) (2026-07-04)
 
 
