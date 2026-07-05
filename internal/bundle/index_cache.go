@@ -50,6 +50,12 @@ func readIndexCache(cachePath string, expectedSourceHash uint64) (*Index, error)
 	}
 	defer f.Close()
 
+	fi, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	fileSize := fi.Size()
+
 	var header [16]byte
 	if _, err := io.ReadFull(f, header[:]); err != nil {
 		return nil, fmt.Errorf("reading header: %w", err)
@@ -89,11 +95,17 @@ func readIndexCache(cachePath string, expectedSourceHash uint64) (*Index, error)
 		return nil, err
 	}
 	fileCount := int(binary.LittleEndian.Uint32(buf[:4]))
+	if int64(fileCount)*12 > fileSize {
+		return nil, fmt.Errorf("file count %d exceeds cache size", fileCount)
+	}
 
 	if _, err := io.ReadFull(r, buf[:8]); err != nil {
 		return nil, err
 	}
 	pathBlobSize := binary.LittleEndian.Uint64(buf[:8])
+	if int64(pathBlobSize) > fileSize {
+		return nil, fmt.Errorf("path blob size %d exceeds cache size %d", pathBlobSize, fileSize)
+	}
 
 	pathBlob := make([]byte, pathBlobSize)
 	if _, err := io.ReadFull(r, pathBlob); err != nil {
@@ -103,12 +115,21 @@ func readIndexCache(cachePath string, expectedSourceHash uint64) (*Index, error)
 	files := make([]bundleFileInfo, fileCount)
 	pos := 0
 	for i := range files {
+		if pos >= len(pathBlob) {
+			return nil, fmt.Errorf("path blob truncated at record %d of %d", i, fileCount)
+		}
 		end := pos
 		for end < len(pathBlob) && pathBlob[end] != 0 {
 			end++
 		}
+		if end >= len(pathBlob) {
+			return nil, fmt.Errorf("path blob missing terminator at record %d of %d", i, fileCount)
+		}
 		files[i].path = string(pathBlob[pos:end])
 		pos = end + 1
+	}
+	if pos != len(pathBlob) {
+		return nil, fmt.Errorf("path blob has %d leftover bytes", len(pathBlob)-pos)
 	}
 
 	metaBlob := make([]byte, fileCount*12)
