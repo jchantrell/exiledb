@@ -1,6 +1,7 @@
 package export
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -58,7 +59,7 @@ func (p *progressCounter) tick(name string) {
 // Individual file failures are logged and counted rather than aborting the
 // run; the returned count is the number of files actually exported (or
 // already present).
-func (e *Exporter) ExportFiles(files []string, progressCallback ProgressCallback) (int, error) {
+func (e *Exporter) ExportFiles(ctx context.Context, files []string, progressCallback ProgressCallback) (int, error) {
 	if len(files) == 0 {
 		return 0, nil
 	}
@@ -81,7 +82,7 @@ func (e *Exporter) ExportFiles(files []string, progressCallback ProgressCallback
 	failed := 0
 
 	if len(spriteFiles) > 0 {
-		ok, bad, err := e.exportSprites(spriteFiles, progress)
+		ok, bad, err := e.exportSprites(ctx, spriteFiles, progress)
 		if err != nil {
 			return exported, err
 		}
@@ -89,7 +90,7 @@ func (e *Exporter) ExportFiles(files []string, progressCallback ProgressCallback
 		failed += bad
 	}
 
-	ok, bad, err := e.exportRegularFiles(regularFiles, progress)
+	ok, bad, err := e.exportRegularFiles(ctx, regularFiles, progress)
 	exported += ok
 	failed += bad
 	if err != nil {
@@ -165,7 +166,7 @@ func ResolveSpriteSheets(loader FileLoader, files []string) ([]string, error) {
 // exportSprites exports images cropped from sprite sheets. Each sheet is
 // decoded once and processed by one worker; a failing sheet fails only its
 // own images. Returns (exported, failed).
-func (e *Exporter) exportSprites(spriteFiles []string, progress *progressCounter) (int, int, error) {
+func (e *Exporter) exportSprites(ctx context.Context, spriteFiles []string, progress *progressCounter) (int, int, error) {
 	index, err := e.spriteIndex()
 	if err != nil {
 		return 0, 0, err
@@ -193,12 +194,15 @@ func (e *Exporter) exportSprites(spriteFiles []string, progress *progressCounter
 	var exported, failed atomic.Int64
 	failed.Add(int64(missing))
 
-	g := new(errgroup.Group)
+	g, ctx := errgroup.WithContext(ctx)
 	g.SetLimit(runtime.GOMAXPROCS(0))
 
 	for _, sheet := range sheets {
 		images := bySheet[sheet]
 		g.Go(func() error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			slog.Info("Extracting sprite sheet", "path", sheet, "image_count", len(images))
 
 			ddsData, err := e.loader.GetFile(sheet)
@@ -251,14 +255,14 @@ func (e *Exporter) exportSprites(spriteFiles []string, progress *progressCounter
 
 // exportRegularFiles exports non-sprite files using parallel workers.
 // Returns (exported, failed).
-func (e *Exporter) exportRegularFiles(regularFiles []string, progress *progressCounter) (int, int, error) {
+func (e *Exporter) exportRegularFiles(ctx context.Context, regularFiles []string, progress *progressCounter) (int, int, error) {
 	if len(regularFiles) == 0 {
 		return 0, 0, nil
 	}
 
 	var exported, failed, skipped atomic.Int64
 
-	g := new(errgroup.Group)
+	g, ctx := errgroup.WithContext(ctx)
 	g.SetLimit(runtime.GOMAXPROCS(0))
 
 	for _, filePath := range regularFiles {
@@ -277,6 +281,9 @@ func (e *Exporter) exportRegularFiles(regularFiles []string, progress *progressC
 		}
 
 		g.Go(func() error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			defer progress.tick(sanitizePath(filePath))
 
 			fileData, err := e.loader.GetFile(filePath)

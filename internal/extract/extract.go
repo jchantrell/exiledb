@@ -71,7 +71,7 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) (*Stats, error) 
 	}
 
 	if len(cfg.Files) > 0 {
-		exportFiles(cfg, manager, opts.Progress, stats)
+		exportFiles(ctx, cfg, manager, opts.Progress, stats)
 	}
 
 	stats.EndTime = time.Now()
@@ -286,13 +286,13 @@ func reportForeignKeys(ctx context.Context, db *database.Database) {
 // exportFiles writes the requested files to ./files. Export failures are
 // reported but do not abort the run; the stats reflect what was actually
 // exported.
-func exportFiles(cfg *config.Config, manager *bundle.BundleManager, progress *ui.Progress, stats *Stats) {
+func exportFiles(ctx context.Context, cfg *config.Config, manager *bundle.BundleManager, progress *ui.Progress, stats *Stats) {
 	expandedFiles := manager.SortByBundle(manager.ExpandFilePaths(cfg.Files))
 	slog.Info("Exporting files", "requested", len(cfg.Files), "resolved", len(expandedFiles))
 
 	exporter := export.NewExporter(manager, filepath.Join(".", "files"))
 
-	exported, err := exporter.ExportFiles(expandedFiles, progress.Phase())
+	exported, err := exporter.ExportFiles(ctx, expandedFiles, progress.Phase())
 	if err != nil {
 		slog.Error("Failed to export files", "error", err)
 	}
