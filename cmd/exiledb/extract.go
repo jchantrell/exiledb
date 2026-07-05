@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"log/slog"
 	"os"
 
@@ -42,9 +41,6 @@ Use --ggpk to extract directly from a Content.ggpk file instead of downloading f
 		}
 
 		stats.Report(os.Stdout)
-		if stats.TotalTables > 0 {
-			fmt.Printf("Database written to %s\n", cfg.Database)
-		}
 		return nil
 	},
 }
