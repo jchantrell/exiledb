@@ -42,8 +42,8 @@ func DecompressUncompressed(buf []uint8, r io.Reader, width, height int, info In
 		return nil, fmt.Errorf("invalid RGB bit count: %v (must be multiple of 8)", info.Header.PixelFormat.RGBBitCount)
 	}
 	byteCount := info.Header.PixelFormat.RGBBitCount / 8
-	if byteCount > 32 {
-		return nil, fmt.Errorf("invalid RGB bit count: %v (must be at most 32)", byteCount)
+	if byteCount > 4 {
+		return nil, fmt.Errorf("invalid RGB bit count: %v (must be at most 32)", info.Header.PixelFormat.RGBBitCount)
 	}
 
 	stride, err := colorModelStride(info.ColorModel)
