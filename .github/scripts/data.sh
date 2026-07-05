@@ -12,12 +12,11 @@ case "$GAME" in
 esac
 
 ASSETS=("$OUT/manifest.txt" "$OUT/dat-manifest.txt")
-if [ -f "$OUT/added-files.txt" ]; then
-  ASSETS+=("$OUT/added-files.txt" "$OUT/removed-files.txt")
-fi
-if [ -f "$OUT/dat-diff.txt" ]; then
-  ASSETS+=("$OUT/dat-diff.txt")
-fi
+for f in added-files.txt removed-files.txt dat-diff.txt; do
+  if [ -s "$OUT/$f" ]; then
+    ASSETS+=("$OUT/$f")
+  fi
+done
 
 if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" &>/dev/null; then
   gh release upload "$TAG" "${ASSETS[@]}" --clobber --repo "$GITHUB_REPOSITORY"
