@@ -190,11 +190,8 @@ func Decode(data []byte) (image.Image, error) {
 	}
 
 	width, height := int(info.Header.Width), int(info.Header.Height)
-	if width == 0 {
-		width = 1
-	}
-	if height == 0 {
-		height = 1
+	if width < 1 || height < 1 {
+		return nil, fmt.Errorf("invalid image dimensions %dx%d", width, height)
 	}
 
 	var buf []uint8
