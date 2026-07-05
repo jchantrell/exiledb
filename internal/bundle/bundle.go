@@ -1,6 +1,7 @@
 package bundle
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -93,6 +94,22 @@ func OpenBundle(r io.ReaderAt) (*bundle, error) {
 
 func (b *bundle) Size() int64 {
 	return b.size
+}
+
+// Decompress decompresses a complete in-memory bundle-compressed stream.
+// It is the single owner of the bundle wire format; other packages that
+// encounter embedded bundle payloads (e.g. .ast files) must use it rather
+// than reimplementing the header parsing.
+func Decompress(data []byte) ([]byte, error) {
+	b, err := OpenBundle(bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	out := make([]byte, b.Size())
+	if _, err := b.ReadAt(out, 0); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (b *bundle) ReadAt(p []byte, off int64) (int, error) {

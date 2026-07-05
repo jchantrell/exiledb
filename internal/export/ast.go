@@ -1,12 +1,9 @@
 package export
 
 import (
-	"bytes"
-	"encoding/binary"
 	"fmt"
-	"io"
 
-	"github.com/oriath-net/gooz"
+	"github.com/jchantrell/exiledb/internal/bundle"
 )
 
 // DecompressAST decompresses the Oodle-compressed animation payload inside an
@@ -32,7 +29,7 @@ func DecompressAST(data []byte) ([]byte, error) {
 		return data, nil
 	}
 
-	payload, err := decompressBundle(data[headerSize:])
+	payload, err := bundle.Decompress(data[headerSize:])
 	if err != nil {
 		return nil, fmt.Errorf("decompressing AST payload: %w", err)
 	}
@@ -112,63 +109,3 @@ func astHeaderSize(data []byte) (int, error) {
 	return off, nil
 }
 
-type bundleHeader struct {
-	UncompressedSize  uint32
-	TotalPayloadSize  uint32
-	HeadPayloadSize   uint32
-	Compression       uint32
-	_                 uint32
-	UncompressedSize2 int64
-	TotalPayloadSize2 int64
-	BlockCount        uint32
-	Granularity       uint32
-	_                 [4]uint32
-}
-
-func decompressBundle(data []byte) ([]byte, error) {
-	r := bytes.NewReader(data)
-
-	var hdr bundleHeader
-	if err := binary.Read(r, binary.LittleEndian, &hdr); err != nil {
-		return nil, fmt.Errorf("reading bundle header: %w", err)
-	}
-
-	if hdr.Granularity == 0 || hdr.BlockCount == 0 ||
-		hdr.UncompressedSize == 0 || hdr.TotalPayloadSize == 0 ||
-		int64(hdr.TotalPayloadSize) > int64(len(data)) {
-		return data, nil
-	}
-
-	blockSizes := make([]uint32, hdr.BlockCount)
-	if err := binary.Read(r, binary.LittleEndian, &blockSizes); err != nil {
-		return nil, fmt.Errorf("reading block sizes: %w", err)
-	}
-
-	uncompressedSize := int(hdr.UncompressedSize)
-	granularity := int(hdr.Granularity)
-
-	result := make([]byte, uncompressedSize)
-	outBuf := make([]byte, granularity+64)
-	offset := 0
-
-	for i, blockSize := range blockSizes {
-		block := make([]byte, blockSize)
-		if _, err := io.ReadFull(r, block); err != nil {
-			return nil, fmt.Errorf("reading block %d: %w", i, err)
-		}
-
-		decompSize := granularity
-		if i == len(blockSizes)-1 {
-			decompSize = uncompressedSize - granularity*(len(blockSizes)-1)
-		}
-
-		if _, err := gooz.Decompress(block, outBuf[:decompSize]); err != nil {
-			return nil, fmt.Errorf("decompressing block %d: %w", i, err)
-		}
-
-		copy(result[offset:], outBuf[:decompSize])
-		offset += decompSize
-	}
-
-	return result, nil
-}
