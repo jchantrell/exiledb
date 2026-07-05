@@ -3,13 +3,11 @@ package database
 import (
 	"context"
 	"fmt"
-	"log/slog"
-	"runtime"
+	"regexp"
 	"strings"
-	"sync"
 
 	"github.com/jchantrell/exiledb/internal/dat"
-	"github.com/jchantrell/exiledb/internal/utils"
+	"github.com/jchantrell/exiledb/internal/poe"
 )
 
 // SchemaProgressCallback is called during schema creation to report progress
@@ -17,16 +15,23 @@ type SchemaProgressCallback func(current int, total int, description string)
 
 // DDLManager handles schema creation with bulk DDL execution
 type DDLManager struct {
-	db             *Database
-	maxConcurrency int
+	db *Database
 }
 
 // NewDDLManager creates a new DDL manager
 func NewDDLManager(db *Database) *DDLManager {
-	return &DDLManager{
-		db:             db,
-		maxConcurrency: runtime.NumCPU(),
+	return &DDLManager{db: db}
+}
+
+// columnNames is the single owner of the schema column naming convention:
+// unnamed columns become "unknownN" in SQL and "UnknownN" in parsed row data,
+// named columns use the snake_cased schema name in SQL and the schema name as
+// the parser field. Both DDL generation and the insert plan derive names here.
+func columnNames(col *dat.TableColumn, i int) (sqlName, fieldName string) {
+	if col.Name == nil {
+		return fmt.Sprintf("unknown%d", i), fmt.Sprintf("Unknown%d", i)
 	}
+	return poe.ToSnakeCase(*col.Name), *col.Name
 }
 
 // GenerateTableDDL generates CREATE TABLE SQL for a given table schema
@@ -39,7 +44,10 @@ func (dm *DDLManager) GenerateTableDDL(table *dat.TableSchema) (string, error) {
 		return "", fmt.Errorf("table name cannot be empty")
 	}
 
-	tableName := utils.ToSnakeCase(table.Name)
+	tableName := poe.ToSnakeCase(table.Name)
+	if err := validateIdentifier(tableName); err != nil {
+		return "", fmt.Errorf("table %s: %w", table.Name, err)
+	}
 
 	var columns []string
 	var foreignKeys []string
@@ -50,11 +58,9 @@ func (dm *DDLManager) GenerateTableDDL(table *dat.TableSchema) (string, error) {
 
 	// Add schema-defined columns
 	for i, column := range table.Columns {
-		var columnName string
-		if column.Name == nil {
-			columnName = fmt.Sprintf("unknown%d", i)
-		} else {
-			columnName = utils.ToSnakeCase(*column.Name)
+		columnName, _ := columnNames(&column, i)
+		if err := validateIdentifier(columnName); err != nil {
+			return "", fmt.Errorf("table %s column %d: %w", table.Name, i, err)
 		}
 
 		columnDDL, fkDDL, err := dm.generateColumnDDL(&column, columnName)
@@ -154,11 +160,11 @@ func (dm *DDLManager) generateForeignKeyDDL(columnName string, ref *dat.ColumnRe
 	}
 
 	// Generate unified referenced table name
-	referencedTable := utils.ToSnakeCase(ref.Table)
+	referencedTable := poe.ToSnakeCase(ref.Table)
 	referencedColumn := "_index" // Default to _index column
 
 	if ref.Column != nil && *ref.Column != "" {
-		referencedColumn = utils.ToSnakeCase(*ref.Column)
+		referencedColumn = poe.ToSnakeCase(*ref.Column)
 	}
 
 	// Foreign keys in ExileDB include the language dimension
@@ -182,11 +188,11 @@ func (dm *DDLManager) generateJunctionTableDDL(tableName, columnName string, ref
 	junctionTableName := fmt.Sprintf("%s_%s_junction", tableName, columnName)
 
 	// Generate unified referenced table name
-	referencedTable := utils.ToSnakeCase(ref.Table)
+	referencedTable := poe.ToSnakeCase(ref.Table)
 	referencedColumn := "_index" // Default to _index column
 
 	if ref.Column != nil && *ref.Column != "" {
-		referencedColumn = utils.ToSnakeCase(*ref.Column)
+		referencedColumn = poe.ToSnakeCase(*ref.Column)
 	}
 
 	// Build junction table DDL with composite foreign key pattern
@@ -205,65 +211,8 @@ func (dm *DDLManager) generateJunctionTableDDL(tableName, columnName string, ref
 	return ddl, nil
 }
 
-// CreateTableSchema creates the complete database schema for a table.
-func (dm *DDLManager) CreateTableSchema(ctx context.Context, table *dat.TableSchema) error {
-	if dm.db == nil {
-		return fmt.Errorf("database cannot be nil")
-	}
-
-	if table == nil {
-		return fmt.Errorf("table schema cannot be nil")
-	}
-
-	tableName := utils.ToSnakeCase(table.Name)
-
-	// Generate and execute main table DDL
-	tableDDL, err := dm.GenerateTableDDL(table)
-	if err != nil {
-		return fmt.Errorf("generating table DDL for %s: %w", tableName, err)
-	}
-
-	if _, err := dm.db.Exec(ctx, tableDDL); err != nil {
-		return fmt.Errorf("creating table %s: %w", tableName, err)
-	}
-
-	// Generate and execute junction tables for foreign key arrays
-	junctionTableCount := 0
-	for _, column := range table.Columns {
-		if column.Name == nil || !column.Array || column.References == nil {
-			continue
-		}
-
-		columnName := utils.ToSnakeCase(*column.Name)
-
-		// Create junction table for this column (no filtering by referenced table)
-		junctionDDL, err := dm.generateJunctionTableDDL(tableName, columnName, column.References)
-		if err != nil {
-			return err
-		}
-
-		if _, err := dm.db.Exec(ctx, junctionDDL); err != nil {
-			return fmt.Errorf("creating junction table for %s.%s: %w", tableName, columnName, err)
-		}
-
-		junctionTableCount++
-		slog.Debug("Created junction table",
-			"main_table", tableName,
-			"column", columnName,
-			"referenced_table", column.References.Table,
-			"junction_table", fmt.Sprintf("%s_%s_junction", tableName, columnName))
-	}
-
-	slog.Info("Created table schema",
-		"table", tableName,
-		"columns", len(table.Columns),
-		"junction_tables_created", junctionTableCount)
-	return nil
-}
-
-// DDLRequest represents a request to generate and execute DDL
+// DDLRequest represents a request to execute a generated DDL statement
 type DDLRequest struct {
-	Type        string // "table" or "junction"
 	DDL         string
 	TableName   string
 	Description string
@@ -275,154 +224,78 @@ func (dm *DDLManager) CreateSchemas(ctx context.Context, tables []dat.TableSchem
 		return nil
 	}
 
-	// Phase 1: Generate all DDL in parallel (CPU-bound operation)
-	ddlRequests, err := dm.generateAllDDLParallel(tables)
+	mainRequests, junctionRequests, err := dm.generateAllDDL(tables)
 	if err != nil {
 		return fmt.Errorf("generating DDL: %w", err)
 	}
 
-	// Phase 2: Execute DDL in controlled batches to avoid SQLite contention
-	if err := dm.executeDDLBulk(ctx, ddlRequests, progressCallback); err != nil {
+	if err := dm.executeDDLBulk(ctx, mainRequests, junctionRequests, progressCallback); err != nil {
 		return fmt.Errorf("executing DDL: %w", err)
 	}
 
 	return nil
 }
 
-// generateAllDDLParallel generates all DDL statements in parallel
-func (dm *DDLManager) generateAllDDLParallel(tables []dat.TableSchema) ([]DDLRequest, error) {
-	// Channel for DDL generation work
-	type ddlWork struct {
-		table dat.TableSchema
-		index int
-	}
+// generateAllDDL generates the main table and junction table DDL for all tables
+func (dm *DDLManager) generateAllDDL(tables []dat.TableSchema) ([]DDLRequest, []DDLRequest, error) {
+	var mainRequests []DDLRequest
+	var junctionRequests []DDLRequest
 
-	workChan := make(chan ddlWork, len(tables))
-	resultsChan := make(chan []DDLRequest, len(tables))
-	errorsChan := make(chan error, len(tables))
-
-	// Send all work
-	for i, table := range tables {
-		workChan <- ddlWork{table: table, index: i}
-	}
-	close(workChan)
-
-	// Start workers
-	var wg sync.WaitGroup
-	numWorkers := min(dm.maxConcurrency, len(tables))
-
-	for i := 0; i < numWorkers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for work := range workChan {
-				ddlRequests, err := dm.generateTableDDLRequests(work.table)
-				if err != nil {
-					errorsChan <- fmt.Errorf("generating DDL for table %s: %w", work.table.Name, err)
-					return
-				}
-				resultsChan <- ddlRequests
-			}
-		}()
-	}
-
-	// Wait for completion
-	go func() {
-		wg.Wait()
-		close(resultsChan)
-		close(errorsChan)
-	}()
-
-	// Collect results
-	var allDDL []DDLRequest
-	var errors []error
-
-	for {
-		select {
-		case ddlRequests, ok := <-resultsChan:
-			if !ok {
-				resultsChan = nil
-			} else {
-				allDDL = append(allDDL, ddlRequests...)
-			}
-		case err, ok := <-errorsChan:
-			if !ok {
-				errorsChan = nil
-			} else {
-				errors = append(errors, err)
-			}
+	for _, table := range tables {
+		main, junctions, err := dm.generateTableDDLRequests(table)
+		if err != nil {
+			return nil, nil, fmt.Errorf("generating DDL for table %s: %w", table.Name, err)
 		}
-
-		if resultsChan == nil && errorsChan == nil {
-			break
-		}
+		mainRequests = append(mainRequests, main)
+		junctionRequests = append(junctionRequests, junctions...)
 	}
 
-	if len(errors) > 0 {
-		return nil, fmt.Errorf("DDL generation failed: %v", errors[0])
-	}
-
-	return allDDL, nil
+	return mainRequests, junctionRequests, nil
 }
 
-// generateTableDDLRequests generates all DDL requests for a single table
-func (dm *DDLManager) generateTableDDLRequests(table dat.TableSchema) ([]DDLRequest, error) {
-	var requests []DDLRequest
+// generateTableDDLRequests generates the main table request and any junction
+// table requests for a single table
+func (dm *DDLManager) generateTableDDLRequests(table dat.TableSchema) (DDLRequest, []DDLRequest, error) {
+	tableName := poe.ToSnakeCase(table.Name)
 
-	tableName := utils.ToSnakeCase(table.Name)
-
-	// Generate main table DDL
 	tableDDL, err := dm.GenerateTableDDL(&table)
 	if err != nil {
-		return nil, fmt.Errorf("generating table DDL: %w", err)
+		return DDLRequest{}, nil, fmt.Errorf("generating table DDL: %w", err)
 	}
 
-	requests = append(requests, DDLRequest{
-		Type:        "table",
+	main := DDLRequest{
 		DDL:         tableDDL,
 		TableName:   tableName,
 		Description: table.Name,
-	})
+	}
 
-	// Generate junction table DDL
-	for _, column := range table.Columns {
+	var junctions []DDLRequest
+	for i := range table.Columns {
+		column := &table.Columns[i]
 		if column.Name == nil || !column.Array || column.References == nil {
 			continue
 		}
 
-		columnName := utils.ToSnakeCase(*column.Name)
+		columnName, _ := columnNames(column, i)
 		junctionDDL, err := dm.generateJunctionTableDDL(tableName, columnName, column.References)
 		if err != nil {
-			return nil, err
+			return DDLRequest{}, nil, err
 		}
 
-		junctionTableName := fmt.Sprintf("%s_%s_junction", tableName, columnName)
-		requests = append(requests, DDLRequest{
-			Type:        "junction",
+		junctions = append(junctions, DDLRequest{
 			DDL:         junctionDDL,
-			TableName:   junctionTableName,
+			TableName:   fmt.Sprintf("%s_%s_junction", tableName, columnName),
 			Description: fmt.Sprintf("%s.%s", table.Name, *column.Name),
 		})
 	}
 
-	return requests, nil
+	return main, junctions, nil
 }
 
-// executeDDLBulk executes DDL statements in bulk transactions
-func (dm *DDLManager) executeDDLBulk(ctx context.Context, ddlRequests []DDLRequest, progressCallback SchemaProgressCallback) error {
-	// Separate main tables and junction tables to ensure main tables are created first
-	var mainTableRequests []DDLRequest
-	var junctionTableRequests []DDLRequest
-
-	for _, req := range ddlRequests {
-		if req.Type == "table" {
-			mainTableRequests = append(mainTableRequests, req)
-		} else {
-			junctionTableRequests = append(junctionTableRequests, req)
-		}
-	}
-
-	totalTables := len(mainTableRequests) + len(junctionTableRequests)
+// executeDDLBulk executes DDL statements in bulk transactions, main tables
+// first so junction table foreign keys have their targets
+func (dm *DDLManager) executeDDLBulk(ctx context.Context, mainRequests, junctionRequests []DDLRequest, progressCallback SchemaProgressCallback) error {
+	totalTables := len(mainRequests) + len(junctionRequests)
 	created := 0
 	report := func(description string) {
 		created++
@@ -432,12 +305,12 @@ func (dm *DDLManager) executeDDLBulk(ctx context.Context, ddlRequests []DDLReque
 	}
 
 	// Execute main tables in single transaction
-	if err := dm.executeDDLTransaction(ctx, mainTableRequests, "main tables", report); err != nil {
+	if err := dm.executeDDLTransaction(ctx, mainRequests, "main tables", report); err != nil {
 		return fmt.Errorf("executing main tables: %w", err)
 	}
 
 	// Execute junction tables in single transaction
-	if err := dm.executeDDLTransaction(ctx, junctionTableRequests, "junction tables", report); err != nil {
+	if err := dm.executeDDLTransaction(ctx, junctionRequests, "junction tables", report); err != nil {
 		return fmt.Errorf("executing junction tables: %w", err)
 	}
 
@@ -474,16 +347,22 @@ func (dm *DDLManager) executeDDLTransaction(ctx context.Context, ddlRequests []D
 	return nil
 }
 
-// min returns the minimum of two integers
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
+// quoteSQLIdentifier quotes SQL identifiers to prevent conflicts with
+// reserved words. Embedded quotes are doubled: identifiers originate from
+// the community schema JSON, which is downloaded at runtime and must not be
+// able to break out of the quoting.
+func quoteSQLIdentifier(identifier string) string {
+	return `"` + strings.ReplaceAll(identifier, `"`, `""`) + `"`
 }
 
-// quoteSQLIdentifier quotes SQL identifiers to prevent conflicts with reserved words
-func quoteSQLIdentifier(identifier string) string {
-	// In SQLite, identifiers can be quoted with double quotes
-	return fmt.Sprintf(`"%s"`, identifier)
+// validIdentifier matches the only characters table/column names may
+// contain; anything else in the remote schema is rejected before it reaches
+// DDL generation.
+var validIdentifier = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+func validateIdentifier(identifier string) error {
+	if !validIdentifier.MatchString(identifier) {
+		return fmt.Errorf("invalid SQL identifier %q", identifier)
+	}
+	return nil
 }
