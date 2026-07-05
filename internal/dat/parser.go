@@ -53,12 +53,7 @@ func (p *DATParser) ParseDATFileWithFilename(ctx context.Context, r io.Reader, f
 		return nil, fmt.Errorf("parsing DAT structure: %w", err)
 	}
 
-	width := Width64
-	if filename != "" {
-		width = WidthForFilename(filename)
-	}
-
-	rowSize := calculateRowSize(schema, width)
+	rowSize := calculateRowSize(schema)
 	if rowSize == 0 {
 		return nil, fmt.Errorf("calculated row size is zero for table %s", schema.Name)
 	}
@@ -85,7 +80,6 @@ func (p *DATParser) ParseDATFileWithFilename(ctx context.Context, r io.Reader, f
 	}
 
 	d := &decoder{
-		width:   width,
 		dynamic: datFile.DynamicData,
 		options: p.options,
 	}
@@ -144,21 +138,21 @@ func parseDATStructure(data []byte) (*DatFile, error) {
 
 // fieldSize is the single owner of per-column fixed-data width; row size and
 // field offsets must agree byte-for-byte, so both derive from it.
-func fieldSize(column *TableColumn, width ParserWidth) int {
+func fieldSize(column *TableColumn) int {
 	if column.Array {
-		return TypeArray.Size(width)
+		return TypeArray.Size()
 	}
-	size := column.Type.Size(width)
+	size := column.Type.Size()
 	if column.Interval {
 		size *= 2
 	}
 	return size
 }
 
-func calculateRowSize(schema *TableSchema, width ParserWidth) int {
+func calculateRowSize(schema *TableSchema) int {
 	totalSize := 0
 	for i := range schema.Columns {
-		totalSize += fieldSize(&schema.Columns[i], width)
+		totalSize += fieldSize(&schema.Columns[i])
 	}
 	return totalSize
 }
@@ -188,7 +182,6 @@ func findAlignedBoundaryMarker(data []byte, rowCount int) int {
 // decoder holds the per-file decode context. It is created per parse call so
 // a shared DATParser carries no per-file state.
 type decoder struct {
-	width   ParserWidth
 	dynamic []byte
 	options *ParserOptions
 }
@@ -200,7 +193,7 @@ func (d *decoder) parseRow(index int, rowData []byte, schema *TableSchema) Parse
 
 	for i, column := range schema.Columns {
 		name := fieldName(&column, i)
-		size := fieldSize(&column, d.width)
+		size := fieldSize(&column)
 
 		if offset >= len(rowData) {
 			slog.Debug("Field exceeds row data length", "name", name, "fieldStart", offset, "rowLength", len(rowData))
@@ -245,7 +238,7 @@ func (d *decoder) fieldValue(data []byte, column *TableColumn) (interface{}, err
 }
 
 func (d *decoder) readScalarField(data []byte, column *TableColumn) (interface{}, error) {
-	if len(data) < column.Type.Size(d.width) {
+	if len(data) < column.Type.Size() {
 		return nil, fmt.Errorf("field %s: insufficient data", column.Type)
 	}
 
@@ -257,18 +250,13 @@ func (d *decoder) readScalarField(data []byte, column *TableColumn) (interface{}
 }
 
 func (d *decoder) readArrayField(data []byte, column *TableColumn) (interface{}, error) {
-	headerSize := TypeArray.Size(d.width)
+	headerSize := TypeArray.Size()
 	if len(data) < headerSize {
-		return nil, fmt.Errorf("array field: insufficient data for %d-bit (need %d bytes)", int(d.width), headerSize)
+		return nil, fmt.Errorf("array field: insufficient data (need %d bytes)", headerSize)
 	}
 
 	count := uint64(binary.LittleEndian.Uint32(data[0:4]))
-	var offset uint64
-	if d.width == Width64 {
-		offset = uint64(binary.LittleEndian.Uint32(data[8:12]))
-	} else {
-		offset = uint64(binary.LittleEndian.Uint32(data[4:8]))
-	}
+	offset := uint64(binary.LittleEndian.Uint32(data[8:12]))
 
 	name := "unknown"
 	if column.Name != nil {
@@ -288,7 +276,7 @@ func (d *decoder) readArray(offset, count uint64, elementType FieldType) (interf
 	c := codecs[elementType]
 
 	if offset == 0 || count == 0 ||
-		offset == uint64(NullRowSentinel) || (d.width == Width64 && offset == LongIDNullSentinel) {
+		offset == uint64(NullRowSentinel) || offset == LongIDNullSentinel {
 		if c.slice == nil {
 			return []interface{}{}, nil
 		}
@@ -309,7 +297,7 @@ func (d *decoder) readArray(offset, count uint64, elementType FieldType) (interf
 }
 
 func (d *decoder) readString(offset uint64) (string, error) {
-	if offset == 0 || offset == uint64(NullRowSentinel) || (d.width == Width64 && offset == LongIDNullSentinel) {
+	if offset == 0 || offset == uint64(NullRowSentinel) || offset == LongIDNullSentinel {
 		return "", nil
 	}
 
@@ -429,8 +417,8 @@ var stringCodec = codec{
 }
 
 // refCodec builds the codec for row reference types. Array elements are
-// decoded as uint32 at the type's stride, but foreign/enum row arrays in
-// 64-bit files reserve 16 bytes per element for bounds checking.
+// decoded as uint32 at the type's stride, but foreign/enum row arrays
+// reserve 16 bytes per element for bounds checking.
 func refCodec(ft FieldType) codec {
 	return codec{
 		scalar: func(_ *decoder, data []byte) (interface{}, error) {
@@ -440,10 +428,10 @@ func refCodec(ft FieldType) codec {
 			}
 			return &value, nil
 		},
-		slice: func(d *decoder, data []byte, count uint64) (interface{}, error) {
-			stride := ft.Size(d.width)
+		slice: func(_ *decoder, data []byte, count uint64) (interface{}, error) {
+			stride := ft.Size()
 			elementSize := stride
-			if d.width == Width64 && (ft == TypeForeignRow || ft == TypeEnumRow) {
+			if ft == TypeForeignRow || ft == TypeEnumRow {
 				elementSize = ElementSize64BitForeignRow
 			}
 
@@ -465,15 +453,8 @@ func decodeRowRef(data []byte) *uint32 {
 	return &value
 }
 
-func decodeLongID(d *decoder, data []byte) (interface{}, error) {
+func decodeLongID(_ *decoder, data []byte) (interface{}, error) {
 	value := binary.LittleEndian.Uint64(data[0:8])
-
-	if d.width == Width32 {
-		if value == LongIDNullSentinel {
-			return nil, nil
-		}
-		return &value, nil
-	}
 
 	high := binary.LittleEndian.Uint64(data[8:16])
 	if value == LongIDNullSentinel && high == LongIDNullSentinel {

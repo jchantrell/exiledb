@@ -1,20 +1,5 @@
 package dat
 
-import (
-	"path"
-	"strings"
-)
-
-// ParserWidth represents the bit width of the DAT file parser
-type ParserWidth int
-
-const (
-	// Width32 represents 32-bit DAT files (.dat, .datl)
-	Width32 ParserWidth = 32
-	// Width64 represents 64-bit DAT files (.dat64, .datl64)
-	Width64 ParserWidth = 64
-)
-
 // FieldType represents a DAT file field type from the community schema
 type FieldType string
 
@@ -41,20 +26,6 @@ const (
 	TypeArray FieldType = "array" // column is an array of unknown type
 )
 
-// WidthForFilename determines the parser width based on the DAT file extension
-func WidthForFilename(filename string) ParserWidth {
-	ext := strings.ToLower(path.Ext(filename))
-	switch ext {
-	case ".dat", ".datl":
-		return Width32 // 32-bit DAT files with UTF-16 (.dat) or UTF-32 (.datl)
-	case ".dat64", ".datl64", ".datc64", ".datc":
-		return Width64 // 64-bit DAT files
-	default:
-		// Default to 32-bit for unknown extensions to match original PoE format
-		return Width32
-	}
-}
-
 // Valid checks if the FieldType is a valid type from the community schema
 func (ft FieldType) Valid() bool {
 	switch ft {
@@ -68,9 +39,9 @@ func (ft FieldType) Valid() bool {
 	}
 }
 
-// Size returns the fixed size in bytes for this field type in DAT files
-// Returns 0 for variable-length types (strings, arrays)
-func (ft FieldType) Size(width ParserWidth) int {
+// Size returns the fixed size in bytes for this field type in 64-bit DAT
+// files (.datc64), the only format current game clients ship.
+func (ft FieldType) Size() int {
 	switch ft {
 	case TypeBool:
 		return 1
@@ -89,9 +60,6 @@ func (ft FieldType) Size(width ParserWidth) int {
 	case TypeString:
 		return 8 // FIELD_SIZE.STRING - always 8 bytes like poe-dat-viewer
 	case TypeLongID:
-		if width == Width32 {
-			return 8 // 32-bit: 8-byte LongID
-		}
 		return 16 // 64-bit: 16-byte LongID
 	case TypeArray:
 		return 16 // FIELD_SIZE.ARRAY - always 16 bytes like poe-dat-viewer
