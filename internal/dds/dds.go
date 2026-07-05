@@ -84,44 +84,33 @@ func DecodeInfo(r io.Reader) (Info, error) {
 				return Info{}, fmt.Errorf("unsupported DXT10 resource dimension: %v", dx10.ResourceDimension)
 			}
 
-			switch dx10.DXGIFormat {
-			case DXGIFormatR32G32B32A32Float,
-				DXGIFormatR32G32B32Float,
-				DXGIFormatR16G16B16A16Float,
-				DXGIFormatR16G16B16A16UNorm,
-				DXGIFormatR32G32Float:
-				info.ColorModel = color.NRGBA64Model
+			if format, ok := dxgiUncompressedFormats[dx10.DXGIFormat]; ok {
+				info.ColorModel = format.colorModel
 				info.Decompress = DecompressUncompressedDXT10
-			case DXGIFormatR32Float, DXGIFormatR16UNorm:
-				info.ColorModel = color.Gray16Model
-				info.Decompress = DecompressUncompressedDXT10
-			case DXGIFormatR8UNorm:
-				info.ColorModel = color.GrayModel
-				info.Decompress = DecompressUncompressedDXT10
-			case DXGIFormatR8G8B8A8UNorm, DXGIFormatB8G8R8A8UNorm:
-				info.ColorModel = color.NRGBAModel
-				info.Decompress = DecompressUncompressedDXT10
-			case DXGIFormatBC1UNorm:
-				info.ColorModel = color.NRGBAModel
-				info.Decompress = DecompressDXT1
-			case DXGIFormatBC2UNorm:
-				return Info{}, errors.New("DXT3 compression unsupported")
-			case DXGIFormatBC3UNorm:
-				info.ColorModel = color.NRGBAModel
-				info.Decompress = DecompressDXT5
-			case DXGIFormatBC4UNorm:
-				info.ColorModel = color.GrayModel
-				info.Decompress = Decompress3DcPlus
-			case DXGIFormatBC5UNorm:
-				info.ColorModel = color.NRGBAModel
-				info.Decompress = Decompress3Dc
-			case DXGIFormatBC7UNorm:
-				info.ColorModel = color.NRGBAModel
-				info.Decompress = DecompressBC7
-			case DXGIFormatBC7UNormSRGB:
-				return Info{}, errors.New("BC7 SRGB compression unsupported")
-			default:
-				return Info{}, fmt.Errorf("unsupported DXGI format: %v", dx10.DXGIFormat)
+			} else {
+				switch dx10.DXGIFormat {
+				case DXGIFormatBC1UNorm:
+					info.ColorModel = color.NRGBAModel
+					info.Decompress = DecompressDXT1
+				case DXGIFormatBC2UNorm:
+					return Info{}, errors.New("DXT3 compression unsupported")
+				case DXGIFormatBC3UNorm:
+					info.ColorModel = color.NRGBAModel
+					info.Decompress = DecompressDXT5
+				case DXGIFormatBC4UNorm:
+					info.ColorModel = color.GrayModel
+					info.Decompress = Decompress3DcPlus
+				case DXGIFormatBC5UNorm:
+					info.ColorModel = color.NRGBAModel
+					info.Decompress = Decompress3Dc
+				case DXGIFormatBC7UNorm:
+					info.ColorModel = color.NRGBAModel
+					info.Decompress = DecompressBC7
+				case DXGIFormatBC7UNormSRGB:
+					return Info{}, errors.New("BC7 SRGB compression unsupported")
+				default:
+					return Info{}, fmt.Errorf("unsupported DXGI format: %v", dx10.DXGIFormat)
+				}
 			}
 
 			if dx10.MiscFlag&D3D10ResourceMiscFlagTextureCube != 0 {

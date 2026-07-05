@@ -130,104 +130,86 @@ func DecompressUncompressed(buf []uint8, r io.Reader, width, height int, info In
 	return buf, nil
 }
 
+// dxgiUncompressedFormat describes one uncompressed DXGI format: the color
+// model DecodeInfo advertises, the size of one source pixel, and the
+// translator that decodes a row of source pixels into destination bytes.
+type dxgiUncompressedFormat struct {
+	colorModel    color.Model
+	srcPixelBytes int
+	translateRow  func(dst, src []byte)
+}
+
+// dxgiUncompressedFormats is consumed by both DecodeInfo and
+// DecompressUncompressedDXT10 so a format is never advertised as decodable
+// unless a translator exists for it.
+var dxgiUncompressedFormats = map[DXGIFormat]dxgiUncompressedFormat{
+	DXGIFormatR32G32B32A32Float: {color.NRGBA64Model, 16, translateFloat32Row},
+	DXGIFormatR16G16B16A16Float: {color.NRGBA64Model, 8, translateFloat16Row},
+	DXGIFormatR16G16B16A16UNorm: {color.NRGBA64Model, 8, translateUint16Row},
+	DXGIFormatR32Float:          {color.Gray16Model, 4, translateFloat32Row},
+	DXGIFormatR16UNorm:          {color.Gray16Model, 2, translateUint16Row},
+	DXGIFormatR8G8B8A8UNorm:     {color.NRGBAModel, 4, translateCopyRow},
+	DXGIFormatB8G8R8A8UNorm:     {color.NRGBAModel, 4, translateBGRARow},
+	DXGIFormatR8UNorm:           {color.GrayModel, 1, translateCopyRow},
+}
+
+func translateFloat32Row(dst, src []byte) {
+	for o := 0; o < len(src); o += 4 {
+		v := math.Float32frombits(binary.LittleEndian.Uint32(src[o:]))
+		binary.BigEndian.PutUint16(dst, uint16(v*0xffff))
+		dst = dst[2:]
+	}
+}
+
+func translateFloat16Row(dst, src []byte) {
+	for o := 0; o < len(src); o += 2 {
+		v := float16.Frombits(binary.LittleEndian.Uint16(src[o:]))
+		binary.BigEndian.PutUint16(dst, uint16(v.Float32()*0xffff))
+		dst = dst[2:]
+	}
+}
+
+func translateUint16Row(dst, src []byte) {
+	for o := 0; o < len(src); o += 2 {
+		binary.BigEndian.PutUint16(dst, binary.LittleEndian.Uint16(src[o:]))
+		dst = dst[2:]
+	}
+}
+
+func translateCopyRow(dst, src []byte) {
+	copy(dst, src)
+}
+
+func translateBGRARow(dst, src []byte) {
+	for o := 0; o < len(src); o += 4 {
+		dst[0], dst[1], dst[2], dst[3] = src[o+2], src[o+1], src[o], src[o+3]
+		dst = dst[4:]
+	}
+}
+
 func DecompressUncompressedDXT10(buf []uint8, r io.Reader, width, height int, info Info) ([]uint8, error) {
 	if info.DXT10Header == nil {
 		return nil, errors.New("uncompressed DXT 10: expected DXT10 header")
 	}
 
-	// srcPixelBytes is the size of one source pixel; translateRow decodes a
-	// full row of source pixels into buf starting at idx.
-	var srcPixelBytes int
-	var translateRow func(idx int, src []byte)
-	switch info.DXT10Header.DXGIFormat {
-	case DXGIFormatR32G32B32A32Float:
-		if info.ColorModel != color.NRGBA64Model {
-			return nil, errors.New("expected NRGBA64 model for R32G32B32A32Float")
-		}
-		srcPixelBytes = 16
-		translateRow = func(idx int, src []byte) {
-			for o := 0; o < len(src); o += 4 {
-				v := math.Float32frombits(binary.LittleEndian.Uint32(src[o:]))
-				binary.BigEndian.PutUint16(buf[idx:], uint16(v*0xffff))
-				idx += 2
-			}
-		}
-	case DXGIFormatR16G16B16A16Float:
-		if info.ColorModel != color.NRGBA64Model {
-			return nil, errors.New("expected NRGBA64 model for R16G16B16A16Float")
-		}
-		srcPixelBytes = 8
-		translateRow = func(idx int, src []byte) {
-			for o := 0; o < len(src); o += 2 {
-				v := float16.Frombits(binary.LittleEndian.Uint16(src[o:]))
-				binary.BigEndian.PutUint16(buf[idx:], uint16(v.Float32()*0xffff))
-				idx += 2
-			}
-		}
-	case DXGIFormatR32Float:
-		if info.ColorModel != color.Gray16Model {
-			return nil, errors.New("expected Gray16 model for R32Float")
-		}
-		srcPixelBytes = 4
-		translateRow = func(idx int, src []byte) {
-			for o := 0; o < len(src); o += 4 {
-				v := math.Float32frombits(binary.LittleEndian.Uint32(src[o:]))
-				binary.BigEndian.PutUint16(buf[idx:], uint16(v*0xffff))
-				idx += 2
-			}
-		}
-	case DXGIFormatR8G8B8A8UNorm:
-		if info.ColorModel != color.NRGBAModel {
-			return nil, errors.New("expected NRGBA model for R8G8B8A8UNorm")
-		}
-		srcPixelBytes = 4
-		translateRow = func(idx int, src []byte) {
-			copy(buf[idx:], src)
-		}
-	case DXGIFormatB8G8R8A8UNorm:
-		if info.ColorModel != color.NRGBAModel {
-			return nil, errors.New("expected NRGBA model for B8G8R8A8UNorm")
-		}
-		srcPixelBytes = 4
-		translateRow = func(idx int, src []byte) {
-			for o := 0; o < len(src); o += 4 {
-				buf[idx], buf[idx+1], buf[idx+2], buf[idx+3] = src[o+2], src[o+1], src[o], src[o+3]
-				idx += 4
-			}
-		}
-	case DXGIFormatR16UNorm:
-		if info.ColorModel != color.Gray16Model {
-			return nil, errors.New("expected Gray16 model for R16UNorm")
-		}
-		srcPixelBytes = 2
-		translateRow = func(idx int, src []byte) {
-			for o := 0; o < len(src); o += 2 {
-				binary.BigEndian.PutUint16(buf[idx:], binary.LittleEndian.Uint16(src[o:]))
-				idx += 2
-			}
-		}
-	case DXGIFormatR8UNorm:
-		if info.ColorModel != color.GrayModel {
-			return nil, errors.New("expected Gray model for R8UNorm")
-		}
-		srcPixelBytes = 1
-		translateRow = func(idx int, src []byte) {
-			copy(buf[idx:], src)
-		}
-	default:
+	format, ok := dxgiUncompressedFormats[info.DXT10Header.DXGIFormat]
+	if !ok {
 		return nil, fmt.Errorf("uncompressed image: unsupported DXGI format: %v", info.DXT10Header.DXGIFormat)
+	}
+	if info.ColorModel != format.colorModel {
+		return nil, fmt.Errorf("unexpected color model for %v", info.DXT10Header.DXGIFormat)
 	}
 
 	stride, err := colorModelStride(info.ColorModel)
 	if err != nil {
 		return nil, err
 	}
-	row := make([]byte, width*srcPixelBytes)
+	row := make([]byte, width*format.srcPixelBytes)
 	for y := 0; y < height; y++ {
 		if _, err := io.ReadFull(r, row); err != nil {
 			return nil, err
 		}
-		translateRow(stride*y*width, row)
+		format.translateRow(buf[stride*y*width:], row)
 	}
-	return nil, nil
+	return buf, nil
 }
