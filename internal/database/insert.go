@@ -42,14 +42,9 @@ func NewBulkInserter(db *Database, options *BulkInsertOptions) *BulkInserter {
 type TableData struct {
 	Schema *dat.TableSchema
 
-	Rows []RowData
+	Rows []dat.ParsedRow
 
 	Language string
-}
-
-type RowData struct {
-	Index  int            // Row index from DAT file
-	Values map[string]any // Column name -> value mapping
 }
 
 type colBinding struct {
@@ -189,12 +184,12 @@ func (bi *BulkInserter) InsertTableData(ctx context.Context, tableData *TableDat
 	return nil
 }
 
-func insertRow(ctx context.Context, plan *insertPlan, stmt *sql.Stmt, junctionStmts []*sql.Stmt, tableData *TableData, row *RowData) error {
+func insertRow(ctx context.Context, plan *insertPlan, stmt *sql.Stmt, junctionStmts []*sql.Stmt, tableData *TableData, row *dat.ParsedRow) error {
 	values := make([]any, 0, len(plan.cols)+2)
 	values = append(values, row.Index, tableData.Language)
 
 	for _, col := range plan.cols {
-		raw, exists := row.Values[col.field]
+		raw, exists := row.Fields[col.field]
 		if !exists {
 			values = append(values, nil) // NULL for missing columns
 			continue
@@ -220,8 +215,8 @@ func insertRow(ctx context.Context, plan *insertPlan, stmt *sql.Stmt, junctionSt
 	return nil
 }
 
-func insertJunctionRows(ctx context.Context, stmt *sql.Stmt, junction *junctionBinding, tableData *TableData, row *RowData) error {
-	value, exists := row.Values[junction.field]
+func insertJunctionRows(ctx context.Context, stmt *sql.Stmt, junction *junctionBinding, tableData *TableData, row *dat.ParsedRow) error {
+	value, exists := row.Fields[junction.field]
 	if !exists {
 		return nil // No data for this array column
 	}

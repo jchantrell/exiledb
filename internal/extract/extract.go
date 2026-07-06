@@ -267,14 +267,9 @@ func insertTables(ctx context.Context, cfg *config.Config, db *database.Database
 				continue
 			}
 
-			rowData := make([]database.RowData, len(parsedTable.Rows))
-			for i, row := range parsedTable.Rows {
-				rowData[i] = database.RowData{Index: row.Index, Values: row.Fields}
-			}
-
 			tableData := &database.TableData{
 				Schema:   &datSchema,
-				Rows:     rowData,
+				Rows:     parsedTable.Rows,
 				Language: language,
 			}
 			if err := bulkInserter.InsertTableData(ctx, tableData); err != nil {
