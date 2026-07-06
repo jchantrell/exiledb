@@ -1,5 +1,41 @@
 # Changelog
 
+## [1.7.0](https://github.com/jchantrell/exiledb/compare/v1.6.0...v1.7.0) (2026-07-06)
+
+
+### Features
+
+* **extract:** fail exit code on table extraction errors ([f768eb6](https://github.com/jchantrell/exiledb/commit/f768eb60c0ff5d75ac1783002c0deacd2e8866cf))
+* **extract:** warn once when a requested language produces no dat files ([2a311dd](https://github.com/jchantrell/exiledb/commit/2a311ddb2206cd5f9a4bd7df69e2e09fc8015de6))
+
+
+### Bug Fixes
+
+* **bundle:** bound cache counts and validate path blob on read ([a92fa22](https://github.com/jchantrell/exiledb/commit/a92fa223ed25519700baa8910053bc3ffb057c1d))
+* **bundle:** key index cache on content hash, not source length ([2f7b975](https://github.com/jchantrell/exiledb/commit/2f7b97572dae599fef2240bc05fd752a1007e794))
+* **bundle:** reject file records referencing out-of-range bundle ids ([1bd38c1](https://github.com/jchantrell/exiledb/commit/1bd38c1803377600f60551556efa7d8ba101723e))
+* **cmd:** keep extract stdout deterministic ([d954d21](https://github.com/jchantrell/exiledb/commit/d954d2161d8087e6f757bb90dfc7af85054706ff))
+* **cmd:** report database path instead of nonexistent query command ([b43f9fd](https://github.com/jchantrell/exiledb/commit/b43f9fd47d2cadf069950448d1e7e34284e44f23))
+* **database:** map longid to INTEGER, validate reference identifiers, warn on unnamed array refs ([8f35236](https://github.com/jchantrell/exiledb/commit/8f3523677437d9aa7bbac35146fb3be7d78c68b7))
+* **dat:** array row references null only the sentinel, matching scalars ([0ed6b05](https://github.com/jchantrell/exiledb/commit/0ed6b054073fb345da49802fc1a1d000de20798d))
+* **dat:** decode both halves of interval columns as min/max ([c525896](https://github.com/jchantrell/exiledb/commit/c52589633f73dbd489ecf2cb63c3d06c89195c4d))
+* **dds:** keep binary.Read struct fields exported ([cc4cae6](https://github.com/jchantrell/exiledb/commit/cc4cae63e17a552244f0944d821313a6450c44d5))
+* **dds:** reject RGBBitCount above 32 bits before buffer read ([16589cb](https://github.com/jchantrell/exiledb/commit/16589cb1a3492612dc0322bd583e2a6caf9a981c))
+* **dds:** return alpha directly from calculateDXTColors ([cc2dd84](https://github.com/jchantrell/exiledb/commit/cc2dd84077d03d7549180f8d819fa17d1142f52f))
+* **dds:** write decoded channels to their color-model slots ([c59f1cd](https://github.com/jchantrell/exiledb/commit/c59f1cdc8416ff19706859b3ab549fab34f0accd))
+* **export:** count skipped files separately from exported ([52213d5](https://github.com/jchantrell/exiledb/commit/52213d55799a309c555137b9b7f63429175123ff))
+* **export:** match dds extension case-insensitively ([52138ad](https://github.com/jchantrell/exiledb/commit/52138ada3d417205ad94c63f5c8050e023ea4086))
+* **export:** report progress in order by counting under the lock ([131f758](https://github.com/jchantrell/exiledb/commit/131f75889492d9561359ce781a4252524ccbe64c))
+* **extract:** canonicalize file paths to lowercase, quiet discovery misses ([2714d76](https://github.com/jchantrell/exiledb/commit/2714d76f5ea155e884cbac6f7056e7ea3fbda1ef))
+* **extract:** resolve schema before discovery, derive dat paths from schema names ([7481f0c](https://github.com/jchantrell/exiledb/commit/7481f0c6f14d2f7bb9d04de72a27f464b3641d56))
+* **ggpk:** surface read errors during directory scans ([8deac0c](https://github.com/jchantrell/exiledb/commit/8deac0cb1d14aa312d4ecd0bd491cc248ef81eba))
+* **upgrade:** context and timeout on binary download ([bfd3b34](https://github.com/jchantrell/exiledb/commit/bfd3b349e4d20dc739f1c4c1ab5ea6331742c09e))
+
+
+### Performance Improvements
+
+* **bundle:** fold path case once at load, not per comparison ([4cb1900](https://github.com/jchantrell/exiledb/commit/4cb19001de23ab0b6c66a29e1aa2776f3dc434f1))
+
 ## [1.6.0](https://github.com/jchantrell/exiledb/compare/v1.5.0...v1.6.0) (2026-07-05)
 
 
