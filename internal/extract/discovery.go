@@ -37,7 +37,7 @@ func bundlesForFiles(index *bundle.Index, paths []string) []string {
 		if loc, err := index.GetFileInfo(path); err == nil {
 			bundleSet[loc.BundleName] = true
 		} else {
-			slog.Warn("File not found in index", "file", path, "error", err)
+			slog.Debug("File not found in index", "file", path, "error", err)
 		}
 		if export.IsInsideSprite(path) {
 			needsSpriteIndices = true
@@ -49,7 +49,7 @@ func bundlesForFiles(index *bundle.Index, paths []string) []string {
 			if loc, err := index.GetFileInfo(spriteList.Path); err == nil {
 				bundleSet[loc.BundleName] = true
 			} else {
-				slog.Warn("Sprite index file not found", "path", spriteList.Path, "error", err)
+				slog.Debug("Sprite index file not found", "path", spriteList.Path, "error", err)
 			}
 		}
 	}

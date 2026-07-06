@@ -1,6 +1,9 @@
 package config
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 type Config struct {
 	Patch     string
@@ -24,6 +27,13 @@ func Validate(cfg *Config) error {
 
 	if len(cfg.Languages) == 0 {
 		cfg.Languages = []string{"English"}
+	}
+
+	// The game's virtual filesystem is case-insensitive; canonicalize file
+	// paths to lowercase so index lookups, sprite matching, and output names
+	// all agree.
+	for i, f := range cfg.Files {
+		cfg.Files[i] = strings.ToLower(f)
 	}
 
 	return nil
