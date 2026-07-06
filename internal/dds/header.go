@@ -9,24 +9,7 @@ import (
 
 type CapsFlags uint32
 
-const (
-	CapsFlag    CapsFlags = 1 << 3
-	CapsTexture CapsFlags = 1 << 12
-	CapsMipMap  CapsFlags = 1 << 22
-)
-
 type Caps2Flags uint32
-
-const (
-	Caps2Cubemap       Caps2Flags = 1 << 9
-	Caps2CubemapPlusX  Caps2Flags = 1 << 10
-	Caps2CubemapMinusX Caps2Flags = 1 << 11
-	Caps2CubemapPlusY  Caps2Flags = 1 << 12
-	Caps2CubemapMinusY Caps2Flags = 1 << 13
-	Caps2CubemapPlusZ  Caps2Flags = 1 << 14
-	Caps2CubemapMinusZ Caps2Flags = 1 << 15
-	Caps2Volume        Caps2Flags = 1 << 21
-)
 
 type PixelFormatFlags uint32
 

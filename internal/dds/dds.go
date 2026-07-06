@@ -14,8 +14,6 @@ type Info struct {
 	DXT10Header *DXT10Header
 	Decompress  DecompressFunc
 	ColorModel  color.Model
-	NumMipMaps  int
-	NumImages   int
 }
 
 type blockCodec struct {
@@ -54,13 +52,7 @@ func DecodeInfo(r io.Reader) (Info, error) {
 		return Info{}, err
 	}
 
-	info := Info{
-		Header:     hdr,
-		NumMipMaps: 1,
-	}
-
-	cubemap := hdr.Caps2&Caps2Cubemap != 0
-	volume := hdr.Caps2&Caps2Volume != 0 && hdr.Depth > 0
+	info := Info{Header: hdr}
 
 	if hdr.PixelFormat.Flags&PixelFormatFlagRGB != 0 {
 		info.ColorModel = color.NRGBAModel
@@ -111,10 +103,6 @@ func DecodeInfo(r io.Reader) (Info, error) {
 			} else {
 				return Info{}, fmt.Errorf("unsupported DXGI format: %v", dx10.DXGIFormat)
 			}
-
-			if dx10.MiscFlag&D3D10ResourceMiscFlagTextureCube != 0 {
-				cubemap = true
-			}
 		default:
 			codec, ok := fourCCCodecs[fourCC]
 			if !ok {
@@ -123,51 +111,6 @@ func DecodeInfo(r io.Reader) (Info, error) {
 			info.ColorModel = codec.colorModel
 			info.Decompress = codec.decompress
 		}
-	}
-
-	info.NumImages = 1
-
-	if info.DXT10Header != nil {
-		info.NumImages = int(info.DXT10Header.ArraySize)
-	}
-
-	if cubemap {
-		info.NumImages = 0
-		if hdr.Caps2&Caps2CubemapPlusX != 0 {
-			info.NumImages++
-		}
-		if hdr.Caps2&Caps2CubemapMinusX != 0 {
-			info.NumImages++
-		}
-		if hdr.Caps2&Caps2CubemapPlusY != 0 {
-			info.NumImages++
-		}
-		if hdr.Caps2&Caps2CubemapMinusY != 0 {
-			info.NumImages++
-		}
-		if hdr.Caps2&Caps2CubemapPlusZ != 0 {
-			info.NumImages++
-		}
-		if hdr.Caps2&Caps2CubemapMinusZ != 0 {
-			info.NumImages++
-		}
-	}
-
-	if volume {
-		info.NumImages = int(hdr.Depth)
-	}
-
-	if info.NumImages == 0 {
-		return Info{}, errors.New("invalid image header: no images")
-	}
-
-	if hdr.Caps&CapsMipMap != 0 &&
-		(hdr.Caps&CapsTexture != 0 || hdr.Caps2&Caps2Cubemap != 0) {
-		info.NumMipMaps = int(hdr.MipMapCount)
-	}
-
-	if info.NumMipMaps == 0 {
-		return Info{}, errors.New("invalid image header: base image mipmap (mip 0) missing")
 	}
 
 	return info, nil
