@@ -83,7 +83,6 @@ func (p *DATParser) ParseDATFileWithFilename(ctx context.Context, r io.Reader, f
 	}
 
 	rows := make([]ParsedRow, datFile.RowCount)
-	maxFieldsParsed := 0
 
 	for i := 0; i < datFile.RowCount; i++ {
 		select {
@@ -94,22 +93,11 @@ func (p *DATParser) ParseDATFileWithFilename(ctx context.Context, r io.Reader, f
 
 		rowData := datFile.FixedData[i*rowSize : (i+1)*rowSize]
 		rows[i] = d.parseRow(i, rowData, schema)
-
-		if rows[i].FieldsParsed > maxFieldsParsed {
-			maxFieldsParsed = rows[i].FieldsParsed
-		}
 	}
 
 	return &ParsedTable{
-		Schema:   schema,
-		RowCount: datFile.RowCount,
-		Rows:     rows,
-		Metadata: &ParseMetadata{
-			FixedDataSize:   len(datFile.FixedData),
-			DynamicDataSize: len(datFile.DynamicData),
-			TotalFileSize:   len(data),
-			MaxFieldsParsed: maxFieldsParsed,
-		},
+		Schema: schema,
+		Rows:   rows,
 	}, nil
 }
 
@@ -183,8 +171,7 @@ type decoder struct {
 }
 
 func (d *decoder) parseRow(index int, rowData []byte, schema *TableSchema) ParsedRow {
-	fields := make(map[string]interface{})
-	fieldsParsed := 0
+	fields := make(map[string]any)
 	offset := 0
 
 	for i, column := range schema.Columns {
@@ -217,7 +204,6 @@ func (d *decoder) parseRow(index int, rowData []byte, schema *TableSchema) Parse
 			}
 			fields[minName] = minValue
 			fields[maxName] = maxValue
-			fieldsParsed++
 			continue
 		}
 
@@ -228,13 +214,11 @@ func (d *decoder) parseRow(index int, rowData []byte, schema *TableSchema) Parse
 		}
 
 		fields[name] = value
-		fieldsParsed++
 	}
 
 	return ParsedRow{
-		Index:        index,
-		Fields:       fields,
-		FieldsParsed: fieldsParsed,
+		Index:  index,
+		Fields: fields,
 	}
 }
 

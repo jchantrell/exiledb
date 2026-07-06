@@ -1,13 +1,5 @@
 package dat
 
-import (
-	"fmt"
-	"log/slog"
-	"strings"
-
-	"github.com/jchantrell/exiledb/internal/poe"
-)
-
 const CommunitySchemaURL = "https://github.com/poe-tool-dev/dat-schema/releases/download/latest/schema.min.json"
 
 type TableColumn struct {
@@ -44,13 +36,6 @@ type TableSchema struct {
 	Tags     []string      `json:"tags"`     // Metadata tags
 }
 
-type SchemaEnumeration struct {
-	ValidFor    ValidFor  `json:"validFor"`    // Game version compatibility
-	Name        string    `json:"name"`        // Enumeration name
-	Indexing    int       `json:"indexing"`    // 0 or 1 based indexing
-	Enumerators []*string `json:"enumerators"` // Enumeration values (nullable)
-}
-
 type SchemaMetadata struct {
 	Version   int `json:"version"`   // Schema version number
 	CreatedAt int `json:"createdAt"` // Unix timestamp when schema was created
@@ -58,53 +43,7 @@ type SchemaMetadata struct {
 
 type CommunitySchema struct {
 	SchemaMetadata
-	Tables       []TableSchema       `json:"tables"`       // Table definitions
-	Enumerations []SchemaEnumeration `json:"enumerations"` // Enumeration definitions
-}
-
-func (cs *CommunitySchema) GetTableSchema(tableName string, gameVersion string) (*TableSchema, error) {
-	majorVersion, err := poe.ParseGameVersion(gameVersion)
-	if err != nil {
-		return nil, fmt.Errorf("parsing game version %s: %w", gameVersion, err)
-	}
-
-	var matchingSchemas []*TableSchema
-
-	for i := range cs.Tables {
-		if cs.Tables[i].Name == tableName {
-			validForGame := cs.Tables[i].ValidFor.IsValidForGame(majorVersion)
-			if validForGame {
-				matchingSchemas = append(matchingSchemas, &cs.Tables[i])
-			}
-		}
-	}
-
-	if len(matchingSchemas) == 0 {
-		lowerTableName := strings.ToLower(tableName)
-		for i := range cs.Tables {
-			if strings.ToLower(cs.Tables[i].Name) == lowerTableName {
-				validForGame := cs.Tables[i].ValidFor.IsValidForGame(majorVersion)
-				if validForGame {
-					matchingSchemas = append(matchingSchemas, &cs.Tables[i])
-				}
-			}
-		}
-	}
-
-	if len(matchingSchemas) == 0 {
-		return nil, fmt.Errorf("no schema found for table %s compatible with game version %s (major: %d)", tableName, gameVersion, majorVersion)
-	}
-
-	if len(matchingSchemas) > 1 {
-		slog.Warn("Multiple compatible schemas found, using first match",
-			"table", tableName,
-			"game_version", gameVersion,
-			"matching_schemas", len(matchingSchemas))
-	}
-
-	selectedSchema := matchingSchemas[0]
-
-	return selectedSchema, nil
+	Tables []TableSchema `json:"tables"` // Table definitions
 }
 
 func (cs *CommunitySchema) GetValidTables(gameVersion int) []TableSchema {

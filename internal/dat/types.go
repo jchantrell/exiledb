@@ -55,23 +55,13 @@ const (
 var BoundaryMarker = []byte{0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb}
 
 type ParsedTable struct {
-	Schema   *TableSchema   `json:"schema"`   // Original table schema
-	RowCount int            `json:"rowCount"` // Number of rows parsed
-	Rows     []ParsedRow    `json:"rows"`     // All parsed row data
-	Metadata *ParseMetadata `json:"metadata"` // Parsing metadata
+	Schema *TableSchema
+	Rows   []ParsedRow
 }
 
 type ParsedRow struct {
-	Index        int                    `json:"index"`        // Row index (0-based)
-	Fields       map[string]interface{} `json:"fields"`       // Field name to parsed value mapping
-	FieldsParsed int                    `json:"fieldsParsed"` // Number of fields successfully parsed (useful for partial schema)
-}
-
-type ParseMetadata struct {
-	FixedDataSize   int `json:"fixedDataSize"`   // Size of fixed data section
-	DynamicDataSize int `json:"dynamicDataSize"` // Size of dynamic data section
-	TotalFileSize   int `json:"totalFileSize"`   // Total DAT file size
-	MaxFieldsParsed int `json:"maxFieldsParsed"` // Maximum number of fields parsed in any row (for partial schema)
+	Index  int
+	Fields map[string]any
 }
 
 type DatFile struct {
