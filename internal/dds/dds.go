@@ -18,6 +18,36 @@ type Info struct {
 	NumImages   int
 }
 
+type blockCodec struct {
+	colorModel color.Model
+	decompress DecompressFunc
+}
+
+var (
+	codecDXT1    = blockCodec{color.NRGBAModel, DecompressDXT1}
+	codecDXT5    = blockCodec{color.NRGBAModel, DecompressDXT5}
+	codec3DcPlus = blockCodec{color.GrayModel, Decompress3DcPlus}
+	codec3Dc     = blockCodec{color.NRGBAModel, Decompress3Dc}
+	codecBC7     = blockCodec{color.NRGBAModel, DecompressBC7}
+)
+
+var fourCCCodecs = map[[4]byte]blockCodec{
+	{'A', 'T', 'I', '1'}: codec3DcPlus,
+	{'A', 'T', 'I', '2'}: codec3Dc,
+	{'D', 'X', 'T', '1'}: codecDXT1,
+	{'D', 'X', 'T', '5'}: codecDXT5,
+}
+
+var dxgiCodecs = map[DXGIFormat]blockCodec{
+	DXGIFormatBC1UNorm: codecDXT1,
+	DXGIFormatBC3UNorm: codecDXT5,
+	DXGIFormatBC4UNorm: codec3DcPlus,
+	DXGIFormatBC5UNorm: codec3Dc,
+	DXGIFormatBC7UNorm: codecBC7,
+}
+
+var errDXT3Unsupported = errors.New("DXT3 compression unsupported")
+
 func DecodeInfo(r io.Reader) (Info, error) {
 	hdr, err := DecodeHeader(r)
 	if err != nil {
@@ -53,22 +83,11 @@ func DecodeInfo(r io.Reader) (Info, error) {
 		}
 		info.Decompress = DecompressUncompressed
 	} else if hdr.PixelFormat.Flags&PixelFormatFlagFourCC != 0 {
-		switch hdr.PixelFormat.FourCC {
-		case [4]byte{'A', 'T', 'I', '1'}:
-			info.ColorModel = color.GrayModel
-			info.Decompress = Decompress3DcPlus
-		case [4]byte{'A', 'T', 'I', '2'}:
-			info.ColorModel = color.NRGBAModel
-			info.Decompress = Decompress3Dc
-		case [4]byte{'D', 'X', 'T', '1'}:
-			info.ColorModel = color.NRGBAModel
-			info.Decompress = DecompressDXT1
-		case [4]byte{'D', 'X', 'T', '3'}:
-			return Info{}, errors.New("DXT3 compression unsupported")
-		case [4]byte{'D', 'X', 'T', '5'}:
-			info.ColorModel = color.NRGBAModel
-			info.Decompress = DecompressDXT5
-		case [4]byte{'D', 'X', '1', '0'}:
+		fourCC := hdr.PixelFormat.FourCC
+		switch {
+		case fourCC == [4]byte{'D', 'X', 'T', '3'}:
+			return Info{}, errDXT3Unsupported
+		case fourCC == [4]byte{'D', 'X', '1', '0'}:
 			dx10, err := DecodeDXT10Header(r)
 			if err != nil {
 				return Info{}, err
@@ -82,37 +101,27 @@ func DecodeInfo(r io.Reader) (Info, error) {
 			if format, ok := dxgiUncompressedFormats[dx10.DXGIFormat]; ok {
 				info.ColorModel = format.colorModel
 				info.Decompress = DecompressUncompressedDXT10
+			} else if codec, ok := dxgiCodecs[dx10.DXGIFormat]; ok {
+				info.ColorModel = codec.colorModel
+				info.Decompress = codec.decompress
+			} else if dx10.DXGIFormat == DXGIFormatBC2UNorm {
+				return Info{}, errDXT3Unsupported
+			} else if dx10.DXGIFormat == DXGIFormatBC7UNormSRGB {
+				return Info{}, errors.New("BC7 SRGB compression unsupported")
 			} else {
-				switch dx10.DXGIFormat {
-				case DXGIFormatBC1UNorm:
-					info.ColorModel = color.NRGBAModel
-					info.Decompress = DecompressDXT1
-				case DXGIFormatBC2UNorm:
-					return Info{}, errors.New("DXT3 compression unsupported")
-				case DXGIFormatBC3UNorm:
-					info.ColorModel = color.NRGBAModel
-					info.Decompress = DecompressDXT5
-				case DXGIFormatBC4UNorm:
-					info.ColorModel = color.GrayModel
-					info.Decompress = Decompress3DcPlus
-				case DXGIFormatBC5UNorm:
-					info.ColorModel = color.NRGBAModel
-					info.Decompress = Decompress3Dc
-				case DXGIFormatBC7UNorm:
-					info.ColorModel = color.NRGBAModel
-					info.Decompress = DecompressBC7
-				case DXGIFormatBC7UNormSRGB:
-					return Info{}, errors.New("BC7 SRGB compression unsupported")
-				default:
-					return Info{}, fmt.Errorf("unsupported DXGI format: %v", dx10.DXGIFormat)
-				}
+				return Info{}, fmt.Errorf("unsupported DXGI format: %v", dx10.DXGIFormat)
 			}
 
 			if dx10.MiscFlag&D3D10ResourceMiscFlagTextureCube != 0 {
 				cubemap = true
 			}
 		default:
-			return Info{}, fmt.Errorf("unsupported compression format: unknown fourCC: %v", string(hdr.PixelFormat.FourCC[:]))
+			codec, ok := fourCCCodecs[fourCC]
+			if !ok {
+				return Info{}, fmt.Errorf("unsupported compression format: unknown fourCC: %v", string(fourCC[:]))
+			}
+			info.ColorModel = codec.colorModel
+			info.Decompress = codec.decompress
 		}
 	}
 
