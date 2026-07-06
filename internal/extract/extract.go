@@ -52,7 +52,24 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) (*Stats, error) 
 		return nil, fmt.Errorf("database already contains tables")
 	}
 
-	manager, err := openSource(ctx, cfg, opts)
+	gameVersion := 0
+	if cfg.GgpkPath == "" || len(cfg.Tables) > 0 {
+		gameVersion, err = poe.ParseGameVersion(cfg.Patch)
+		if err != nil {
+			return nil, fmt.Errorf("parsing game version: %w", err)
+		}
+	}
+
+	var resolvedTables []dat.TableSchema
+	if len(cfg.Tables) > 0 {
+		schema, err := loadCommunitySchema(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("loading community schema: %w", err)
+		}
+		resolvedTables = filterTables(schema.GetValidTables(gameVersion), cfg.Tables)
+	}
+
+	manager, err := openSource(ctx, cfg, opts, gameVersion, resolvedTables)
 	if err != nil {
 		return nil, err
 	}
@@ -63,8 +80,8 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) (*Stats, error) 
 
 	stats.processingStart = time.Now()
 
-	if len(cfg.Tables) > 0 {
-		if err := insertTables(ctx, cfg, db, manager, opts, stats); err != nil {
+	if len(resolvedTables) > 0 {
+		if err := insertTables(ctx, cfg, db, manager, opts, stats, resolvedTables); err != nil {
 			return nil, err
 		}
 		reportForeignKeys(ctx, db)
@@ -90,7 +107,7 @@ type source struct {
 	gameVersion  int
 }
 
-func resolveSource(ctx context.Context, cfg *config.Config, force bool) (*source, error) {
+func resolveSource(ctx context.Context, cfg *config.Config, gameVersion int, force bool) (*source, error) {
 	if cfg.GgpkPath != "" {
 		slog.Info("Using GGPK file", "path", cfg.GgpkPath)
 		s, err := bundle.NewGgpkSource(cfg.GgpkPath)
@@ -105,11 +122,6 @@ func resolveSource(ctx context.Context, cfg *config.Config, force bool) (*source
 		return nil, err
 	}
 
-	gameVersion, err := poe.ParseGameVersion(cfg.Patch)
-	if err != nil {
-		return nil, fmt.Errorf("parsing game version: %w", err)
-	}
-
 	if err := cdn.DownloadIndex(ctx, c, cfg.Patch, gameVersion, force); err != nil {
 		return nil, fmt.Errorf("downloading index file: %w", err)
 	}
@@ -122,7 +134,16 @@ func resolveSource(ctx context.Context, cfg *config.Config, force bool) (*source
 }
 
 func LoadIndex(ctx context.Context, cfg *config.Config) (*bundle.Index, error) {
-	src, err := resolveSource(ctx, cfg, false)
+	gameVersion := 0
+	if cfg.GgpkPath == "" {
+		var err error
+		gameVersion, err = poe.ParseGameVersion(cfg.Patch)
+		if err != nil {
+			return nil, fmt.Errorf("parsing game version: %w", err)
+		}
+	}
+
+	src, err := resolveSource(ctx, cfg, gameVersion, false)
 	if err != nil {
 		return nil, err
 	}
@@ -131,8 +152,8 @@ func LoadIndex(ctx context.Context, cfg *config.Config) (*bundle.Index, error) {
 	return bundle.LoadIndex(src.bundleSource)
 }
 
-func openSource(ctx context.Context, cfg *config.Config, opts Options) (*bundle.BundleManager, error) {
-	src, err := resolveSource(ctx, cfg, opts.ForceDownload)
+func openSource(ctx context.Context, cfg *config.Config, opts Options, gameVersion int, tables []dat.TableSchema) (*bundle.BundleManager, error) {
+	src, err := resolveSource(ctx, cfg, gameVersion, opts.ForceDownload)
 	if err != nil {
 		return nil, err
 	}
@@ -146,9 +167,11 @@ func openSource(ctx context.Context, cfg *config.Config, opts Options) (*bundle.
 	if src.cache == nil {
 		return manager, nil
 	}
-	c, gameVersion := src.cache, src.gameVersion
+	c := src.cache
+	index := manager.Index()
 
-	requiredBundles := discoverRequiredBundles(manager.Index(), cfg.Patch, cfg.Languages, cfg.Tables, cfg.Files)
+	paths := append(datFilePaths(cfg.Patch, tables, cfg.Languages), index.ExpandFilePaths(cfg.Files)...)
+	requiredBundles := bundlesForFiles(index, paths)
 	if len(requiredBundles) == 0 {
 		slog.Info("No bundles required for current configuration")
 		manager.Close()
@@ -167,7 +190,7 @@ func openSource(ctx context.Context, cfg *config.Config, opts Options) (*bundle.
 	if err != nil {
 		slog.Warn("Failed to resolve sprite sheets", "error", err)
 	} else if len(sheets) > 0 {
-		sheetBundles := discoverRequiredBundles(manager.Index(), cfg.Patch, nil, nil, sheets)
+		sheetBundles := bundlesForFiles(index, sheets)
 		if err := cdn.DownloadBundles(ctx, c, cfg.Patch, gameVersion, sheetBundles, opts.ForceDownload, opts.phase()); err != nil {
 			manager.Close()
 			return nil, fmt.Errorf("downloading sprite sheet bundles: %w", err)
@@ -198,18 +221,7 @@ func loadCommunitySchema(ctx context.Context) (*dat.CommunitySchema, error) {
 	return dat.ParseCommunitySchema(file)
 }
 
-func insertTables(ctx context.Context, cfg *config.Config, db *database.Database, manager *bundle.BundleManager, opts Options, stats *Stats) error {
-	schema, err := loadCommunitySchema(ctx)
-	if err != nil {
-		return fmt.Errorf("loading community schema: %w", err)
-	}
-
-	gameVersion, err := poe.ParseGameVersion(cfg.Patch)
-	if err != nil {
-		return fmt.Errorf("parsing game version %s: %w", cfg.Patch, err)
-	}
-
-	datSchemas := filterTables(schema.GetValidTables(gameVersion), cfg.Tables)
+func insertTables(ctx context.Context, cfg *config.Config, db *database.Database, manager *bundle.BundleManager, opts Options, stats *Stats, datSchemas []dat.TableSchema) error {
 	stats.TotalTables = len(datSchemas)
 
 	plans, err := database.Plan(datSchemas)

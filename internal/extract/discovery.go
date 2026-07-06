@@ -2,67 +2,54 @@ package extract
 
 import (
 	"log/slog"
-	"strings"
 
 	"github.com/jchantrell/exiledb/internal/bundle"
+	"github.com/jchantrell/exiledb/internal/dat"
 	"github.com/jchantrell/exiledb/internal/export"
 	"github.com/jchantrell/exiledb/internal/poe"
 )
 
-func discoverRequiredBundles(index *bundle.Index, patch string, languages []string, tables []string, files []string) []string {
-	bundleSet := make(map[string]bool)
-
-	if len(tables) > 0 {
-		for _, table := range tables {
-			path := poe.DatPath(patch, table, poe.DatExtension)
-			if loc, err := index.GetFileInfo(path); err == nil {
-				bundleSet[loc.BundleName] = true
+// datFilePaths derives the dat file path for every requested (table, language)
+// pair straight from the resolved schema names, so discovery and insertion
+// agree on exactly which files to fetch.
+func datFilePaths(patch string, tables []dat.TableSchema, languages []string) []string {
+	paths := make([]string, 0, len(tables)*len(languages))
+	for _, table := range tables {
+		for _, language := range languages {
+			if language == "English" {
+				paths = append(paths, poe.DatPath(patch, table.Name, poe.DatExtension))
 			} else {
-				slog.Warn("Table file not found", "table", table, "path", path, "error", err)
-			}
-
-			for _, language := range languages {
-				if language == "English" {
-					continue
-				}
-				langPath := poe.DatLangPath(patch, language, table, poe.DatExtension)
-				if loc, err := index.GetFileInfo(langPath); err == nil {
-					bundleSet[loc.BundleName] = true
-				}
-			}
-		}
-	} else {
-		for _, filePath := range index.ListFiles() {
-			if strings.HasPrefix(filePath, "data/") && strings.HasSuffix(filePath, poe.DatExtension) {
-				if loc, err := index.GetFileInfo(filePath); err == nil {
-					bundleSet[loc.BundleName] = true
-				}
+				paths = append(paths, poe.DatLangPath(patch, language, table.Name, poe.DatExtension))
 			}
 		}
 	}
+	return paths
+}
 
-	if len(files) > 0 {
-		needsSpriteIndices := false
+// bundlesForFiles resolves each path to the bundle that stores it. Paths that
+// live inside a sprite pull in the sprite index files as well, since those
+// must be present before sprite sheets can be resolved.
+func bundlesForFiles(index *bundle.Index, paths []string) []string {
+	bundleSet := make(map[string]bool)
+	needsSpriteIndices := false
 
-		for _, filePath := range index.ExpandFilePaths(files) {
-			if loc, err := index.GetFileInfo(filePath); err == nil {
+	for _, path := range paths {
+		if loc, err := index.GetFileInfo(path); err == nil {
+			bundleSet[loc.BundleName] = true
+		} else {
+			slog.Warn("File not found in index", "file", path, "error", err)
+		}
+		if export.IsInsideSprite(path) {
+			needsSpriteIndices = true
+		}
+	}
+
+	if needsSpriteIndices {
+		for _, spriteList := range export.SpriteLists {
+			if loc, err := index.GetFileInfo(spriteList.Path); err == nil {
 				bundleSet[loc.BundleName] = true
 			} else {
-				slog.Warn("File not found in index", "file", filePath, "error", err)
-			}
-
-			if export.IsInsideSprite(filePath) {
-				needsSpriteIndices = true
-			}
-		}
-
-		if needsSpriteIndices {
-			for _, spriteList := range export.SpriteLists {
-				if loc, err := index.GetFileInfo(spriteList.Path); err == nil {
-					bundleSet[loc.BundleName] = true
-				} else {
-					slog.Warn("Sprite index file not found", "path", spriteList.Path, "error", err)
-				}
+				slog.Warn("Sprite index file not found", "path", spriteList.Path, "error", err)
 			}
 		}
 	}
