@@ -54,15 +54,15 @@ func decodeInfo(r io.Reader) (imageInfo, error) {
 
 	info := imageInfo{header: hdr}
 
-	if hdr.pixelFormat.Flags&pixelFormatFlagRGB != 0 {
+	if hdr.PixelFormat.Flags&pixelFormatFlagRGB != 0 {
 		info.colorModel = color.NRGBAModel
 		info.decompress = decompressUncompressed
-	} else if hdr.pixelFormat.Flags&pixelFormatFlagYUV != 0 {
+	} else if hdr.PixelFormat.Flags&pixelFormatFlagYUV != 0 {
 		return imageInfo{}, errors.New("YUV compression unsupported")
-	} else if hdr.pixelFormat.Flags&pixelFormatFlagLuminance != 0 {
-		if hdr.pixelFormat.Flags&pixelFormatFlagAlphaPixels == 0 {
-			if hdr.pixelFormat.GBitMask == 0 && hdr.pixelFormat.BBitMask == 0 {
-				if hdr.pixelFormat.RGBBitCount > 8 {
+	} else if hdr.PixelFormat.Flags&pixelFormatFlagLuminance != 0 {
+		if hdr.PixelFormat.Flags&pixelFormatFlagAlphaPixels == 0 {
+			if hdr.PixelFormat.GBitMask == 0 && hdr.PixelFormat.BBitMask == 0 {
+				if hdr.PixelFormat.RGBBitCount > 8 {
 					info.colorModel = color.Gray16Model
 				} else {
 					info.colorModel = color.GrayModel
@@ -74,8 +74,8 @@ func decodeInfo(r io.Reader) (imageInfo, error) {
 			info.colorModel = color.NRGBAModel
 		}
 		info.decompress = decompressUncompressed
-	} else if hdr.pixelFormat.Flags&pixelFormatFlagFourCC != 0 {
-		fourCC := hdr.pixelFormat.FourCC
+	} else if hdr.PixelFormat.Flags&pixelFormatFlagFourCC != 0 {
+		fourCC := hdr.PixelFormat.FourCC
 		switch {
 		case fourCC == [4]byte{'D', 'X', 'T', '3'}:
 			return imageInfo{}, errDXT3Unsupported
@@ -90,18 +90,18 @@ func decodeInfo(r io.Reader) (imageInfo, error) {
 				return imageInfo{}, fmt.Errorf("unsupported DXT10 resource dimension: %v", dx10.ResourceDimension)
 			}
 
-			if format, ok := dxgiUncompressedFormats[dx10.dxgiFormat]; ok {
+			if format, ok := dxgiUncompressedFormats[dx10.DXGIFormat]; ok {
 				info.colorModel = format.colorModel
 				info.decompress = decompressUncompressedDXT10
-			} else if codec, ok := dxgiCodecs[dx10.dxgiFormat]; ok {
+			} else if codec, ok := dxgiCodecs[dx10.DXGIFormat]; ok {
 				info.colorModel = codec.colorModel
 				info.decompress = codec.decompress
-			} else if dx10.dxgiFormat == dxgiFormatBC2UNorm {
+			} else if dx10.DXGIFormat == dxgiFormatBC2UNorm {
 				return imageInfo{}, errDXT3Unsupported
-			} else if dx10.dxgiFormat == dxgiFormatBC7UNormSRGB {
+			} else if dx10.DXGIFormat == dxgiFormatBC7UNormSRGB {
 				return imageInfo{}, errors.New("BC7 SRGB compression unsupported")
 			} else {
-				return imageInfo{}, fmt.Errorf("unsupported DXGI format: %v", dx10.dxgiFormat)
+				return imageInfo{}, fmt.Errorf("unsupported DXGI format: %v", dx10.DXGIFormat)
 			}
 		default:
 			codec, ok := fourCCCodecs[fourCC]

@@ -173,7 +173,7 @@ const (
 type alphaMode uint32
 
 type dxt10Header struct {
-	dxgiFormat        dxgiFormat
+	DXGIFormat        dxgiFormat
 	ResourceDimension d3d10ResourceDimension
 	MiscFlag          d3d10ResourceMiscFlags
 	ArraySize         uint32

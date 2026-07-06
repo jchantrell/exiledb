@@ -28,7 +28,7 @@ func colorModelStride(m color.Model) (int, error) {
 }
 
 func decompressUncompressed(buf []uint8, r io.Reader, width, height int, info imageInfo) error {
-	bitMasks := [4]uint32{info.header.pixelFormat.RBitMask, info.header.pixelFormat.GBitMask, info.header.pixelFormat.BBitMask, info.header.pixelFormat.ABitMask}
+	bitMasks := [4]uint32{info.header.PixelFormat.RBitMask, info.header.PixelFormat.GBitMask, info.header.PixelFormat.BBitMask, info.header.PixelFormat.ABitMask}
 	var bitMaskTZs [4]int
 	for i := range bitMasks {
 		bitMaskTZs[i] = bits.TrailingZeros32(bitMasks[i])
@@ -38,12 +38,12 @@ func decompressUncompressed(buf []uint8, r io.Reader, width, height int, info im
 		bitMaskBits[i] = bits.Len32(bitMasks[i] >> bitMaskTZs[i])
 	}
 
-	if info.header.pixelFormat.RGBBitCount%8 != 0 {
-		return fmt.Errorf("invalid RGB bit count: %v (must be multiple of 8)", info.header.pixelFormat.RGBBitCount)
+	if info.header.PixelFormat.RGBBitCount%8 != 0 {
+		return fmt.Errorf("invalid RGB bit count: %v (must be multiple of 8)", info.header.PixelFormat.RGBBitCount)
 	}
-	byteCount := info.header.pixelFormat.RGBBitCount / 8
+	byteCount := info.header.PixelFormat.RGBBitCount / 8
 	if byteCount > 4 {
-		return fmt.Errorf("invalid RGB bit count: %v (must be at most 32)", info.header.pixelFormat.RGBBitCount)
+		return fmt.Errorf("invalid RGB bit count: %v (must be at most 32)", info.header.PixelFormat.RGBBitCount)
 	}
 
 	stride, err := colorModelStride(info.colorModel)
@@ -72,7 +72,7 @@ func decompressUncompressed(buf []uint8, r io.Reader, width, height int, info im
 		return fmt.Errorf("pixel format masks write up to byte %d per pixel, color model stride is %d", pixelEnd, stride)
 	}
 
-	fillAlpha := info.header.pixelFormat.Flags&pixelFormatFlagAlphaPixels == 0
+	fillAlpha := info.header.PixelFormat.Flags&pixelFormatFlagAlphaPixels == 0
 
 	for y := 0; y < height; y++ {
 		for x := 0; x < width; x++ {
@@ -183,12 +183,12 @@ func decompressUncompressedDXT10(buf []uint8, r io.Reader, width, height int, in
 		return errors.New("uncompressed DXT 10: expected DXT10 header")
 	}
 
-	format, ok := dxgiUncompressedFormats[info.dxt10Header.dxgiFormat]
+	format, ok := dxgiUncompressedFormats[info.dxt10Header.DXGIFormat]
 	if !ok {
-		return fmt.Errorf("uncompressed image: unsupported DXGI format: %v", info.dxt10Header.dxgiFormat)
+		return fmt.Errorf("uncompressed image: unsupported DXGI format: %v", info.dxt10Header.DXGIFormat)
 	}
 	if info.colorModel != format.colorModel {
-		return fmt.Errorf("unexpected color model for %v", info.dxt10Header.dxgiFormat)
+		return fmt.Errorf("unexpected color model for %v", info.dxt10Header.DXGIFormat)
 	}
 
 	stride, err := colorModelStride(info.colorModel)

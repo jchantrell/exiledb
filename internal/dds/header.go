@@ -55,11 +55,11 @@ type header struct {
 	Depth             uint32
 	MipMapCount       uint32
 	Reserved          [11]uint32
-	pixelFormat       pixelFormat
-	caps              capsFlags
-	caps2             caps2Flags
-	caps3             uint32
-	caps4             uint32
+	PixelFormat       pixelFormat
+	Caps              capsFlags
+	Caps2             caps2Flags
+	Caps3             uint32
+	Caps4             uint32
 	Reserved2         uint32
 }
 
@@ -88,8 +88,8 @@ func decodeHeader(r io.Reader) (header, error) {
 		return header{}, errors.New("required header flags missing (required: Caps | Width | Height | PixelFormat)")
 	}
 
-	if hdr.pixelFormat.Size != 0x20 {
-		return header{}, fmt.Errorf("invalid pixel format header size: %v", hdr.pixelFormat.Size)
+	if hdr.PixelFormat.Size != 0x20 {
+		return header{}, fmt.Errorf("invalid pixel format header size: %v", hdr.PixelFormat.Size)
 	}
 
 	return hdr, nil
