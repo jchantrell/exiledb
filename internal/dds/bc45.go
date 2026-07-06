@@ -29,8 +29,8 @@ func decode3DcBlock(block []uint8) [8]uint8 {
 	return c
 }
 
-func Decompress3DcPlus(buf []uint8, r io.Reader, width, height int, info Info) error {
-	if info.ColorModel != color.GrayModel {
+func decompress3DcPlus(buf []uint8, r io.Reader, width, height int, info imageInfo) error {
+	if info.colorModel != color.GrayModel {
 		return errors.New("3Dc+ compression expects gray color model")
 	}
 	return decodeBlocks(buf, r, width, height, 8, 1, decode3DcPlusBlock)
@@ -46,8 +46,8 @@ func decode3DcPlusBlock(block []byte, texels *[16][4]uint8) error {
 	return nil
 }
 
-func Decompress3Dc(buf []uint8, r io.Reader, width, height int, info Info) error {
-	if info.ColorModel != color.NRGBAModel {
+func decompress3Dc(buf []uint8, r io.Reader, width, height int, info imageInfo) error {
+	if info.colorModel != color.NRGBAModel {
 		return errors.New("3Dc compression expects NRGBA color model")
 	}
 	return decodeBlocks(buf, r, width, height, 16, 4, decode3DcTwoChannelBlock)

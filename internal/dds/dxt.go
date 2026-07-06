@@ -39,8 +39,8 @@ func calculateDXTColors(c0 uint16, c1 uint16, ignoreAlpha bool) (r [4]uint8, g [
 	return
 }
 
-func DecompressDXT1(buf []uint8, r io.Reader, width, height int, info Info) error {
-	if info.ColorModel != color.NRGBAModel {
+func decompressDXT1(buf []uint8, r io.Reader, width, height int, info imageInfo) error {
+	if info.colorModel != color.NRGBAModel {
 		return errors.New("DXT1 compression expects NRGBA color model")
 	}
 	return decodeBlocks(buf, r, width, height, 8, 4, decodeDXT1Block)
@@ -60,8 +60,8 @@ func decodeDXT1Block(block []byte, texels *[16][4]uint8) error {
 	return nil
 }
 
-func DecompressDXT5(buf []uint8, r io.Reader, width, height int, info Info) error {
-	if info.ColorModel != color.NRGBAModel {
+func decompressDXT5(buf []uint8, r io.Reader, width, height int, info imageInfo) error {
+	if info.colorModel != color.NRGBAModel {
 		return errors.New("DXT5 compression expects NRGBA color model")
 	}
 	return decodeBlocks(buf, r, width, height, 16, 4, decodeDXT5Block)

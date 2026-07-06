@@ -7,24 +7,24 @@ import (
 	"io"
 )
 
-type CapsFlags uint32
+type capsFlags uint32
 
-type Caps2Flags uint32
+type caps2Flags uint32
 
-type PixelFormatFlags uint32
+type pixelFormatFlags uint32
 
 const (
-	PixelFormatFlagAlphaPixels PixelFormatFlags = 1 << 0
-	PixelFormatFlagAlpha       PixelFormatFlags = 1 << 1
-	PixelFormatFlagFourCC      PixelFormatFlags = 1 << 2
-	PixelFormatFlagRGB         PixelFormatFlags = 1 << 6
-	PixelFormatFlagYUV         PixelFormatFlags = 1 << 9
-	PixelFormatFlagLuminance   PixelFormatFlags = 1 << 17
+	pixelFormatFlagAlphaPixels pixelFormatFlags = 1 << 0
+	pixelFormatFlagAlpha       pixelFormatFlags = 1 << 1
+	pixelFormatFlagFourCC      pixelFormatFlags = 1 << 2
+	pixelFormatFlagRGB         pixelFormatFlags = 1 << 6
+	pixelFormatFlagYUV         pixelFormatFlags = 1 << 9
+	pixelFormatFlagLuminance   pixelFormatFlags = 1 << 17
 )
 
-type PixelFormat struct {
+type pixelFormat struct {
 	Size        uint32
-	Flags       PixelFormatFlags
+	Flags       pixelFormatFlags
 	FourCC      [4]uint8
 	RGBBitCount uint32
 	RBitMask    uint32
@@ -33,63 +33,63 @@ type PixelFormat struct {
 	ABitMask    uint32
 }
 
-type HeaderFlags uint32
+type headerFlags uint32
 
 const (
-	HeaderFlagCaps        HeaderFlags = 1 << 0
-	HeaderFlagHeight      HeaderFlags = 1 << 1
-	HeaderFlagWidth       HeaderFlags = 1 << 2
-	HeaderFlagPitch       HeaderFlags = 1 << 3
-	HeaderFlagPixelFormat HeaderFlags = 1 << 12
-	HeaderFlagMipMapCount HeaderFlags = 1 << 17
-	HeaderFlagLinearsize  HeaderFlags = 1 << 19
-	HeaderFlagDepth       HeaderFlags = 1 << 23
+	headerFlagCaps        headerFlags = 1 << 0
+	headerFlagHeight      headerFlags = 1 << 1
+	headerFlagWidth       headerFlags = 1 << 2
+	headerFlagPitch       headerFlags = 1 << 3
+	headerFlagPixelFormat headerFlags = 1 << 12
+	headerFlagMipMapCount headerFlags = 1 << 17
+	headerFlagLinearsize  headerFlags = 1 << 19
+	headerFlagDepth       headerFlags = 1 << 23
 )
 
-type Header struct {
+type header struct {
 	Size              uint32
-	Flags             HeaderFlags
+	Flags             headerFlags
 	Height            uint32
 	Width             uint32
 	PitchOrLinearSize uint32
 	Depth             uint32
 	MipMapCount       uint32
 	Reserved          [11]uint32
-	PixelFormat       PixelFormat
-	Caps              CapsFlags
-	Caps2             Caps2Flags
-	Caps3             uint32
-	Caps4             uint32
+	pixelFormat       pixelFormat
+	caps              capsFlags
+	caps2             caps2Flags
+	caps3             uint32
+	caps4             uint32
 	Reserved2         uint32
 }
 
-func DecodeHeader(r io.Reader) (Header, error) {
+func decodeHeader(r io.Reader) (header, error) {
 	var magicNum [4]uint8
 	if err := binary.Read(r, binary.LittleEndian, magicNum[:]); err != nil {
-		return Header{}, err
+		return header{}, err
 	}
 	if magicNum != [4]uint8{'D', 'D', 'S', ' '} {
-		return Header{}, errors.New("invalid magic number")
+		return header{}, errors.New("invalid magic number")
 	}
 
-	var hdr Header
+	var hdr header
 	if err := binary.Read(r, binary.LittleEndian, &hdr); err != nil {
-		return Header{}, err
+		return header{}, err
 	}
 
 	if hdr.Size != 0x7c {
-		return Header{}, fmt.Errorf("invalid header size: %v", hdr.Size)
+		return header{}, fmt.Errorf("invalid header size: %v", hdr.Size)
 	}
 
-	if hdr.Flags&HeaderFlagCaps == 0 ||
-		hdr.Flags&HeaderFlagWidth == 0 ||
-		hdr.Flags&HeaderFlagHeight == 0 ||
-		hdr.Flags&HeaderFlagPixelFormat == 0 {
-		return Header{}, errors.New("required header flags missing (required: Caps | Width | Height | PixelFormat)")
+	if hdr.Flags&headerFlagCaps == 0 ||
+		hdr.Flags&headerFlagWidth == 0 ||
+		hdr.Flags&headerFlagHeight == 0 ||
+		hdr.Flags&headerFlagPixelFormat == 0 {
+		return header{}, errors.New("required header flags missing (required: Caps | Width | Height | PixelFormat)")
 	}
 
-	if hdr.PixelFormat.Size != 0x20 {
-		return Header{}, fmt.Errorf("invalid pixel format header size: %v", hdr.PixelFormat.Size)
+	if hdr.pixelFormat.Size != 0x20 {
+		return header{}, fmt.Errorf("invalid pixel format header size: %v", hdr.pixelFormat.Size)
 	}
 
 	return hdr, nil

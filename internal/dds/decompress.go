@@ -2,7 +2,7 @@ package dds
 
 import "io"
 
-type DecompressFunc func(buf []uint8, r io.Reader, width, height int, info Info) error
+type decompressFunc func(buf []uint8, r io.Reader, width, height int, info imageInfo) error
 
 // blockDecoder decodes one compressed block into 16 texels in row-major
 // order: texels[j*4+i] holds texel (i, j) of the 4x4 block. Each texel
