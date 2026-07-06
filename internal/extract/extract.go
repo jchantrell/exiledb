@@ -1,7 +1,6 @@
 package extract
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"log/slog"
@@ -257,8 +256,7 @@ func insertTables(ctx context.Context, cfg *config.Config, db *database.Database
 				continue
 			}
 
-			parser := dat.NewDATParser()
-			parsedTable, err := parser.ParseDATFileWithFilename(ctx, bytes.NewReader(datData), path, &datSchema)
+			parsedTable, err := dat.Parse(ctx, datData, &datSchema)
 			if err != nil {
 				slog.Error("Failed to parse DAT file", "path", path, "table", datSchema.Name, "size_bytes", len(datData), "error", err)
 				stats.ProcessingErrors++

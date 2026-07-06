@@ -5,41 +5,15 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"io"
 	"log/slog"
 	"math"
 	"strconv"
 	"unicode/utf16"
 )
 
-type DATParser struct {
-	options *ParserOptions
-}
-
-type ParserOptions struct {
-	MaxStringLength           int // Maximum string length, to prevent memory issues
-	MaxArrayCount             int // Maximum number of array elements
-	ArraySizeWarningThreshold int // Threshold for logging warnings about large arrays
-}
-
-func NewDATParser() *DATParser {
-	return &DATParser{
-		options: &ParserOptions{
-			MaxStringLength:           DefaultMaxStringLength,
-			MaxArrayCount:             DefaultMaxArrayCount,
-			ArraySizeWarningThreshold: DefaultArraySizeWarningThreshold,
-		},
-	}
-}
-
-func (p *DATParser) ParseDATFileWithFilename(ctx context.Context, r io.Reader, filename string, schema *TableSchema) (*ParsedTable, error) {
+func Parse(ctx context.Context, data []byte, schema *TableSchema) (*ParsedTable, error) {
 	if schema == nil {
 		return nil, fmt.Errorf("schema cannot be nil")
-	}
-
-	data, err := io.ReadAll(r)
-	if err != nil {
-		return nil, fmt.Errorf("reading DAT file: %w", err)
 	}
 
 	if len(data) < MinDATFileSize {
@@ -79,7 +53,6 @@ func (p *DATParser) ParseDATFileWithFilename(ctx context.Context, r io.Reader, f
 
 	d := &decoder{
 		dynamic: datFile.DynamicData,
-		options: p.options,
 	}
 
 	rows := make([]ParsedRow, datFile.RowCount)
@@ -167,7 +140,6 @@ func findAlignedBoundaryMarker(data []byte, rowCount int) int {
 
 type decoder struct {
 	dynamic []byte
-	options *ParserOptions
 }
 
 func (d *decoder) parseRow(index int, rowData []byte, schema *TableSchema) ParsedRow {
@@ -266,10 +238,10 @@ func (d *decoder) readArrayField(data []byte, column *TableColumn) (interface{},
 	if column.Name != nil {
 		name = *column.Name
 	}
-	if count > uint64(d.options.MaxArrayCount) {
-		return nil, fmt.Errorf("field %s: array count %d exceeds maximum %d", name, count, d.options.MaxArrayCount)
+	if count > uint64(DefaultMaxArrayCount) {
+		return nil, fmt.Errorf("field %s: array count %d exceeds maximum %d", name, count, DefaultMaxArrayCount)
 	}
-	if count > uint64(d.options.ArraySizeWarningThreshold) {
+	if count > uint64(DefaultArraySizeWarningThreshold) {
 		slog.Debug("Large array detected", "field", name, "count", count)
 	}
 
@@ -323,8 +295,8 @@ func (d *decoder) readString(offset uint64) (string, error) {
 		}
 		result = append(result, ch)
 
-		if len(result)*2 > d.options.MaxStringLength {
-			return "", fmt.Errorf("string: exceeds maximum length %d", d.options.MaxStringLength)
+		if len(result)*2 > DefaultMaxStringLength {
+			return "", fmt.Errorf("string: exceeds maximum length %d", DefaultMaxStringLength)
 		}
 	}
 
