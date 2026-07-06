@@ -184,8 +184,9 @@ func quoteSQLIdentifier(identifier string) string {
 }
 
 // validIdentifier matches the only characters table/column names may
-// contain; anything else in the remote schema is rejected before it reaches
-// DDL generation.
+// contain. Every identifier derived from the remote schema — table names,
+// column names, and reference targets — is checked against it before
+// reaching DDL generation.
 var validIdentifier = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 func validateIdentifier(identifier string) error {

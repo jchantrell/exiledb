@@ -2,6 +2,7 @@ package database
 
 import (
 	"fmt"
+	"log/slog"
 
 	"github.com/jchantrell/exiledb/internal/dat"
 	"github.com/jchantrell/exiledb/internal/poe"
@@ -64,6 +65,7 @@ func newTablePlan(schema *dat.TableSchema) (*tablePlan, error) {
 
 		if column.Array && column.References != nil {
 			if column.Name == nil {
+				slog.Warn("skipping unnamed array reference column", "table", schema.Name, "index", i)
 				continue
 			}
 
@@ -149,9 +151,15 @@ func referenceTarget(ref *dat.ColumnReference) (table, column string, err error)
 	}
 
 	table = poe.ToSnakeCase(ref.Table)
+	if err := validateIdentifier(table); err != nil {
+		return "", "", err
+	}
 	column = colIndex
 	if ref.Column != nil && *ref.Column != "" {
 		column = poe.ToSnakeCase(*ref.Column)
+	}
+	if err := validateIdentifier(column); err != nil {
+		return "", "", err
 	}
 	return table, column, nil
 }
@@ -170,6 +178,8 @@ func mapDATTypeToSQL(fieldType dat.FieldType) (string, error) {
 		return "REAL", nil
 	case dat.TypeRow, dat.TypeForeignRow, dat.TypeEnumRow:
 		return "INTEGER", nil // Row references are integer indices
+	case dat.TypeLongID:
+		return "INTEGER", nil // 64-bit row reference; SQLite INTEGER holds it
 	case dat.TypeArray:
 		return "TEXT", nil // Arrays stored as JSON text
 	default:
