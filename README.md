@@ -26,21 +26,21 @@ go build -o exiledb ./cmd/exiledb/
 How to use:
 ```bash
 # Print the current version
-./exiledb version
+exiledb version
 
 # Upgrade to the latest release (use --check to only look for new versions)
-./exiledb upgrade
+exiledb upgrade
 
 # Browse the bundle index to find files and directories
-./exiledb list                     # list root directory
-./exiledb list --path data/balance # list a specific path
+exiledb list                     # list root directory
+exiledb list --path data/balance # list a specific path
 
 # Or dump every file path in the game (one per line) and grep it
-./exiledb manifest --patch 4.4.0.13 > 4.4.0.13.txt
+exiledb manifest --patch 4.4.0.13 > 4.4.0.13.txt
 grep waystone 4.4.0.13.txt
 
 # Append uncompressed byte counts to each path (tab-separated)
-./exiledb manifest --patch 4.4.0.13 --sizes > 4.4.0.13-sizes.txt
+exiledb manifest --patch 4.4.0.13 --sizes > 4.4.0.13-sizes.txt
 
 # Diff manifests to see what changed between game versions
 diff 4.4.0.12.txt 4.4.0.13.txt
@@ -50,11 +50,11 @@ diff 4.4.0.12.txt 4.4.0.13.txt
 https://github.com/jchantrell/exiledb/releases
 
 # Download bundles and extract data to DB (exile.db by default)
-./exiledb extract --patch 4.4.0.13 --tables BaseItemTypes,ItemClasses
+exiledb extract --patch 4.4.0.13 --tables BaseItemTypes,ItemClasses
 
 # Or extract directly from a Content.ggpk file instead of downloading from CDN
-./exiledb list --ggpk /path/to/Content.ggpk
-./exiledb extract --ggpk /path/to/Content.ggpk
+exiledb list --ggpk /path/to/Content.ggpk
+exiledb extract --ggpk /path/to/Content.ggpk
 
 # Then query it with any SQLite client. Tables are named after their schema
 # counterparts (BaseItemTypes -> base_item_types) and rows reference each
