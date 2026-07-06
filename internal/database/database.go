@@ -178,32 +178,6 @@ func (d *Database) BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, e
 	return tx, nil
 }
 
-func (d *Database) Exec(ctx context.Context, query string, args ...any) (sql.Result, error) {
-	if d.db == nil {
-		return nil, fmt.Errorf("database connection is closed")
-	}
-
-	result, err := d.db.ExecContext(ctx, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("executing query: %w", err)
-	}
-
-	return result, nil
-}
-
-func (d *Database) Query(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
-	if d.db == nil {
-		return nil, fmt.Errorf("database connection is closed")
-	}
-
-	rows, err := d.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("executing query: %w", err)
-	}
-
-	return rows, nil
-}
-
 func (d *Database) QueryRow(ctx context.Context, query string, args ...any) *sql.Row {
 	return d.db.QueryRowContext(ctx, query, args...)
 }

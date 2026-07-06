@@ -12,33 +12,6 @@ import (
 	"github.com/jchantrell/exiledb/internal/dat"
 )
 
-type BulkInserter struct {
-	db        *Database
-	batchSize int
-}
-
-type BulkInsertOptions struct {
-	// BatchSize determines how many rows to insert between progress reports
-	BatchSize int
-}
-
-func DefaultBulkInsertOptions() *BulkInsertOptions {
-	return &BulkInsertOptions{
-		BatchSize: 1000,
-	}
-}
-
-func NewBulkInserter(db *Database, options *BulkInsertOptions) *BulkInserter {
-	if options == nil {
-		options = DefaultBulkInsertOptions()
-	}
-
-	return &BulkInserter{
-		db:        db,
-		batchSize: options.BatchSize,
-	}
-}
-
 type TableData struct {
 	Schema *dat.TableSchema
 
@@ -66,12 +39,7 @@ type insertPlan struct {
 	junctions []junctionBinding
 }
 
-func buildInsertPlan(schema *dat.TableSchema) (*insertPlan, error) {
-	plan, err := newTablePlan(schema)
-	if err != nil {
-		return nil, err
-	}
-
+func buildInsertPlan(plan *TablePlan) *insertPlan {
 	quotedColumns := []string{quoteSQLIdentifier(colIndex), quoteSQLIdentifier(colLanguage)}
 	placeholders := []string{"?", "?"}
 
@@ -108,7 +76,7 @@ func buildInsertPlan(schema *dat.TableSchema) (*insertPlan, error) {
 			strings.Join(placeholders, ", ")),
 		cols:      cols,
 		junctions: junctions,
-	}, nil
+	}
 }
 
 func valueProcessor(column *dat.TableColumn) func(any) (any, error) {
@@ -125,7 +93,7 @@ func valueProcessor(column *dat.TableColumn) func(any) (any, error) {
 	}
 }
 
-func (bi *BulkInserter) InsertTableData(ctx context.Context, tableData *TableData) error {
+func InsertTableData(ctx context.Context, db *Database, plan *TablePlan, tableData *TableData) error {
 	if tableData == nil {
 		return fmt.Errorf("table data cannot be nil")
 	}
@@ -139,26 +107,23 @@ func (bi *BulkInserter) InsertTableData(ctx context.Context, tableData *TableDat
 		return nil
 	}
 
-	plan, err := buildInsertPlan(tableData.Schema)
-	if err != nil {
-		return fmt.Errorf("planning insert for %s: %w", tableData.Schema.Name, err)
-	}
-	tableName := plan.tableName
+	insert := plan.insert
+	tableName := insert.tableName
 
-	tx, err := bi.db.BeginTx(ctx, nil)
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("starting transaction: %w", err)
 	}
 	defer tx.Rollback() // Safe to call even after commit
 
-	stmt, err := tx.PrepareContext(ctx, plan.insertSQL)
+	stmt, err := tx.PrepareContext(ctx, insert.insertSQL)
 	if err != nil {
 		return fmt.Errorf("preparing insert statement for %s: %w", tableName, err)
 	}
 	defer stmt.Close()
 
-	junctionStmts := make([]*sql.Stmt, len(plan.junctions))
-	for i, junction := range plan.junctions {
+	junctionStmts := make([]*sql.Stmt, len(insert.junctions))
+	for i, junction := range insert.junctions {
 		junctionStmt, err := tx.PrepareContext(ctx, junction.insertSQL)
 		if err != nil {
 			return fmt.Errorf("preparing junction table statement for %s.%s: %w", tableName, junction.sqlName, err)
@@ -167,13 +132,9 @@ func (bi *BulkInserter) InsertTableData(ctx context.Context, tableData *TableDat
 		junctionStmts[i] = junctionStmt
 	}
 
-	for n, row := range tableData.Rows {
-		if err := insertRow(ctx, plan, stmt, junctionStmts, tableData, &row); err != nil {
+	for _, row := range tableData.Rows {
+		if err := insertRow(ctx, insert, stmt, junctionStmts, tableData, &row); err != nil {
 			return fmt.Errorf("inserting row %d for table %s: %w", row.Index, tableName, err)
-		}
-
-		if bi.batchSize > 0 && (n+1)%bi.batchSize == 0 {
-			slog.Debug("Insert progress", "table", tableName, "rows", n+1, "total", len(tableData.Rows))
 		}
 	}
 

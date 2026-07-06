@@ -33,14 +33,29 @@ type planJunction struct {
 	refColumn string
 }
 
-type tablePlan struct {
+type TablePlan struct {
 	sqlName    string
 	schemaName string
 	columns    []planColumn
 	junctions  []planJunction
+	insert     *insertPlan
 }
 
-func newTablePlan(schema *dat.TableSchema) (*tablePlan, error) {
+// Plan computes the SQL plan for each table exactly once. The result feeds
+// both DDL creation and row insertion, so neither path re-derives it.
+func Plan(schemas []dat.TableSchema) ([]*TablePlan, error) {
+	plans := make([]*TablePlan, 0, len(schemas))
+	for i := range schemas {
+		plan, err := newTablePlan(&schemas[i])
+		if err != nil {
+			return nil, err
+		}
+		plans = append(plans, plan)
+	}
+	return plans, nil
+}
+
+func newTablePlan(schema *dat.TableSchema) (*TablePlan, error) {
 	if schema == nil {
 		return nil, fmt.Errorf("table schema cannot be nil")
 	}
@@ -53,7 +68,7 @@ func newTablePlan(schema *dat.TableSchema) (*tablePlan, error) {
 		return nil, fmt.Errorf("table %s: %w", schema.Name, err)
 	}
 
-	plan := &tablePlan{sqlName: tableName, schemaName: schema.Name}
+	plan := &TablePlan{sqlName: tableName, schemaName: schema.Name}
 
 	for i := range schema.Columns {
 		column := &schema.Columns[i]
@@ -138,6 +153,8 @@ func newTablePlan(schema *dat.TableSchema) (*tablePlan, error) {
 
 		plan.columns = append(plan.columns, col)
 	}
+
+	plan.insert = buildInsertPlan(plan)
 
 	return plan, nil
 }

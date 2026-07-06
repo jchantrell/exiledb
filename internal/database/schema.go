@@ -5,21 +5,11 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
-
-	"github.com/jchantrell/exiledb/internal/dat"
 )
 
 type SchemaProgressCallback func(current int, total int, description string)
 
-type DDLManager struct {
-	db *Database
-}
-
-func NewDDLManager(db *Database) *DDLManager {
-	return &DDLManager{db: db}
-}
-
-func generateTableDDL(plan *tablePlan) string {
+func generateTableDDL(plan *TablePlan) string {
 	columns := []string{
 		colIndex + " INTEGER",
 		colLanguage + " TEXT NOT NULL",
@@ -44,7 +34,7 @@ func generateTableDDL(plan *tablePlan) string {
 		strings.Join(columns, ",\n    "))
 }
 
-func generateJunctionTableDDL(plan *tablePlan, junction *planJunction) string {
+func generateJunctionTableDDL(plan *TablePlan, junction *planJunction) string {
 	return fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %[1]s (
     %[2]s TEXT NOT NULL,
     %[3]s INTEGER NOT NULL,
@@ -68,108 +58,65 @@ type DDLRequest struct {
 	Description string
 }
 
-func (dm *DDLManager) CreateSchemas(ctx context.Context, tables []dat.TableSchema, progressCallback SchemaProgressCallback) error {
-	if len(tables) == 0 {
-		return nil
+// CreateSchemas creates every table's DDL in one transaction and returns the
+// number of tables created (main plus junction). Foreign keys are never
+// enforced during load (see DatabaseOptions), so junction tables need not be
+// ordered after their parents.
+func CreateSchemas(ctx context.Context, db *Database, plans []*TablePlan, progressCallback SchemaProgressCallback) (int, error) {
+	if len(plans) == 0 {
+		return 0, nil
 	}
 
-	mainRequests, junctionRequests, err := dm.generateAllDDL(tables)
-	if err != nil {
-		return fmt.Errorf("generating DDL: %w", err)
+	requests := generateAllDDL(plans)
+	if err := executeDDL(ctx, db, requests, progressCallback); err != nil {
+		return 0, fmt.Errorf("executing DDL: %w", err)
 	}
 
-	if err := dm.executeDDLBulk(ctx, mainRequests, junctionRequests, progressCallback); err != nil {
-		return fmt.Errorf("executing DDL: %w", err)
-	}
-
-	return nil
+	return len(requests), nil
 }
 
-func (dm *DDLManager) generateAllDDL(tables []dat.TableSchema) ([]DDLRequest, []DDLRequest, error) {
-	var mainRequests []DDLRequest
-	var junctionRequests []DDLRequest
-
-	for _, table := range tables {
-		main, junctions, err := dm.generateTableDDLRequests(table)
-		if err != nil {
-			return nil, nil, fmt.Errorf("generating DDL for table %s: %w", table.Name, err)
-		}
-		mainRequests = append(mainRequests, main)
-		junctionRequests = append(junctionRequests, junctions...)
-	}
-
-	return mainRequests, junctionRequests, nil
-}
-
-func (dm *DDLManager) generateTableDDLRequests(table dat.TableSchema) (DDLRequest, []DDLRequest, error) {
-	plan, err := newTablePlan(&table)
-	if err != nil {
-		return DDLRequest{}, nil, fmt.Errorf("generating table DDL: %w", err)
-	}
-
-	main := DDLRequest{
-		DDL:         generateTableDDL(plan),
-		TableName:   plan.sqlName,
-		Description: plan.schemaName,
-	}
-
-	junctions := make([]DDLRequest, 0, len(plan.junctions))
-	for i := range plan.junctions {
-		junction := &plan.junctions[i]
-		junctions = append(junctions, DDLRequest{
-			DDL:         generateJunctionTableDDL(plan, junction),
-			TableName:   junction.tableName,
-			Description: fmt.Sprintf("%s.%s", plan.schemaName, junction.field),
+func generateAllDDL(plans []*TablePlan) []DDLRequest {
+	var requests []DDLRequest
+	for _, plan := range plans {
+		requests = append(requests, DDLRequest{
+			DDL:         generateTableDDL(plan),
+			TableName:   plan.sqlName,
+			Description: plan.schemaName,
 		})
-	}
-
-	return main, junctions, nil
-}
-
-// executeDDLBulk executes DDL statements in bulk transactions, main tables
-// first so junction table foreign keys have their targets
-func (dm *DDLManager) executeDDLBulk(ctx context.Context, mainRequests, junctionRequests []DDLRequest, progressCallback SchemaProgressCallback) error {
-	totalTables := len(mainRequests) + len(junctionRequests)
-	created := 0
-	report := func(description string) {
-		created++
-		if progressCallback != nil {
-			progressCallback(created, totalTables, description)
+		for i := range plan.junctions {
+			junction := &plan.junctions[i]
+			requests = append(requests, DDLRequest{
+				DDL:         generateJunctionTableDDL(plan, junction),
+				TableName:   junction.tableName,
+				Description: fmt.Sprintf("%s.%s", plan.schemaName, junction.field),
+			})
 		}
 	}
-
-	if err := dm.executeDDLTransaction(ctx, mainRequests, "main tables", report); err != nil {
-		return fmt.Errorf("executing main tables: %w", err)
-	}
-
-	if err := dm.executeDDLTransaction(ctx, junctionRequests, "junction tables", report); err != nil {
-		return fmt.Errorf("executing junction tables: %w", err)
-	}
-
-	return nil
+	return requests
 }
 
-func (dm *DDLManager) executeDDLTransaction(ctx context.Context, ddlRequests []DDLRequest, description string, report func(description string)) error {
-	if len(ddlRequests) == 0 {
+func executeDDL(ctx context.Context, db *Database, requests []DDLRequest, progressCallback SchemaProgressCallback) error {
+	if len(requests) == 0 {
 		return nil
 	}
 
-	tx, err := dm.db.BeginTx(ctx, nil)
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("beginning transaction for %s: %w", description, err)
+		return fmt.Errorf("beginning DDL transaction: %w", err)
 	}
 	defer tx.Rollback() // Safe to call even after commit
 
-	for _, req := range ddlRequests {
+	for i, req := range requests {
 		if _, err := tx.ExecContext(ctx, req.DDL); err != nil {
-			return fmt.Errorf("executing DDL for %s in %s: %w", req.TableName, description, err)
+			return fmt.Errorf("executing DDL for %s: %w", req.TableName, err)
 		}
-
-		report(req.Description)
+		if progressCallback != nil {
+			progressCallback(i+1, len(requests), req.Description)
+		}
 	}
 
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("committing DDL transaction for %s: %w", description, err)
+		return fmt.Errorf("committing DDL transaction: %w", err)
 	}
 
 	return nil

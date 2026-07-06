@@ -212,23 +212,18 @@ func insertTables(ctx context.Context, cfg *config.Config, db *database.Database
 	datSchemas := filterTables(schema.GetValidTables(gameVersion), cfg.Tables)
 	stats.TotalTables = len(datSchemas)
 
-	totalTables := len(datSchemas)
-	for _, table := range datSchemas {
-		for _, column := range table.Columns {
-			if column.Name != nil && column.Array && column.References != nil {
-				totalTables++
-			}
-		}
+	plans, err := database.Plan(datSchemas)
+	if err != nil {
+		return fmt.Errorf("planning tables: %w", err)
 	}
-	slog.Info("Creating database schemas", "count", totalTables)
 
-	ddlManager := database.NewDDLManager(db)
-	if err := ddlManager.CreateSchemas(ctx, datSchemas, opts.phase()); err != nil {
+	createdTables, err := database.CreateSchemas(ctx, db, plans, opts.phase())
+	if err != nil {
 		return fmt.Errorf("creating schemas: %w", err)
 	}
+	slog.Info("Creating database schemas", "count", createdTables)
 
 	slog.Info("Inserting dat files", "count", len(datSchemas))
-	bulkInserter := database.NewBulkInserter(db, nil)
 
 	insertProgress := opts.phase()
 	for i, datSchema := range datSchemas {
@@ -272,7 +267,7 @@ func insertTables(ctx context.Context, cfg *config.Config, db *database.Database
 				Rows:     parsedTable.Rows,
 				Language: language,
 			}
-			if err := bulkInserter.InsertTableData(ctx, tableData); err != nil {
+			if err := database.InsertTableData(ctx, db, plans[i], tableData); err != nil {
 				slog.Error("Failed to insert records", "table", datSchema.Name, "error", err)
 				stats.DatabaseErrors++
 				continue
