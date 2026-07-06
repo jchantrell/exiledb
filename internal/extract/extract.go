@@ -237,6 +237,8 @@ func insertTables(ctx context.Context, cfg *config.Config, db *database.Database
 
 	slog.Info("Inserting dat files", "count", len(datSchemas))
 
+	languagesSeen := make(map[string]bool)
+
 	insertProgress := opts.phase()
 	for i, datSchema := range datSchemas {
 		if err := ctx.Err(); err != nil {
@@ -254,6 +256,7 @@ func insertTables(ctx context.Context, cfg *config.Config, db *database.Database
 				slog.Debug("File does not exist", "path", path)
 				continue
 			}
+			languagesSeen[language] = true
 
 			slog.Debug("Processing DAT file", "path", path, "table", datSchema.Name)
 
@@ -288,6 +291,12 @@ func insertTables(ctx context.Context, cfg *config.Config, db *database.Database
 			stats.RowsInserted += int64(len(parsedTable.Rows))
 		}
 		stats.ProcessedTables++
+	}
+
+	for _, language := range cfg.Languages {
+		if !languagesSeen[language] {
+			slog.Warn("Requested language produced no dat files", "language", language)
+		}
 	}
 
 	return nil
