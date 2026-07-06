@@ -262,7 +262,7 @@ func (d *decoder) readScalarField(data []byte, column *TableColumn) (interface{}
 		return nil, fmt.Errorf("field %s: insufficient data", column.Type)
 	}
 
-	c := codecs[column.Type]
+	c := fieldTypes[column.Type].codec
 	if c.scalar == nil {
 		return nil, fmt.Errorf("field %s: unsupported type", column.Type)
 	}
@@ -293,7 +293,7 @@ func (d *decoder) readArrayField(data []byte, column *TableColumn) (interface{},
 }
 
 func (d *decoder) readArray(offset, count uint64, elementType FieldType) (interface{}, error) {
-	c := codecs[elementType]
+	c := fieldTypes[elementType].codec
 
 	if offset == 0 || count == 0 ||
 		offset == uint64(NullRowSentinel) || offset == LongIDNullSentinel {
@@ -375,21 +375,29 @@ type codec struct {
 	slice  func(d *decoder, data []byte, count uint64) (interface{}, error)
 }
 
-var codecs = map[FieldType]codec{
-	TypeBool:       fixedCodec(1, func(b []byte) bool { return b[0] != 0 }),
-	TypeInt16:      fixedCodec(2, func(b []byte) int16 { return int16(binary.LittleEndian.Uint16(b)) }),
-	TypeUint16:     fixedCodec(2, binary.LittleEndian.Uint16),
-	TypeInt32:      fixedCodec(4, func(b []byte) int32 { return int32(binary.LittleEndian.Uint32(b)) }),
-	TypeUint32:     fixedCodec(4, binary.LittleEndian.Uint32),
-	TypeInt64:      fixedCodec(8, func(b []byte) int64 { return int64(binary.LittleEndian.Uint64(b)) }),
-	TypeUint64:     fixedCodec(8, binary.LittleEndian.Uint64),
-	TypeFloat32:    fixedCodec(4, func(b []byte) float32 { return math.Float32frombits(binary.LittleEndian.Uint32(b)) }),
-	TypeFloat64:    fixedCodec(8, func(b []byte) float64 { return math.Float64frombits(binary.LittleEndian.Uint64(b)) }),
-	TypeString:     stringCodec,
-	TypeRow:        refCodec(TypeRow),
-	TypeForeignRow: refCodec(TypeForeignRow),
-	TypeEnumRow:    refCodec(TypeEnumRow),
-	TypeLongID:     {scalar: decodeLongID},
+// fieldTypes is the single source of truth for every FieldType: its
+// fixed-data width and how it decodes. FieldType.Valid, FieldType.Size, and
+// all decoding read from this one map. TypeArray carries a zero-value codec:
+// array columns decode via their element type, never via TypeArray itself.
+var fieldTypes = map[FieldType]struct {
+	size  int
+	codec codec
+}{
+	TypeBool:       {1, fixedCodec(1, func(b []byte) bool { return b[0] != 0 })},
+	TypeInt16:      {2, fixedCodec(2, func(b []byte) int16 { return int16(binary.LittleEndian.Uint16(b)) })},
+	TypeUint16:     {2, fixedCodec(2, binary.LittleEndian.Uint16)},
+	TypeInt32:      {4, fixedCodec(4, func(b []byte) int32 { return int32(binary.LittleEndian.Uint32(b)) })},
+	TypeUint32:     {4, fixedCodec(4, binary.LittleEndian.Uint32)},
+	TypeInt64:      {8, fixedCodec(8, func(b []byte) int64 { return int64(binary.LittleEndian.Uint64(b)) })},
+	TypeUint64:     {8, fixedCodec(8, binary.LittleEndian.Uint64)},
+	TypeFloat32:    {4, fixedCodec(4, func(b []byte) float32 { return math.Float32frombits(binary.LittleEndian.Uint32(b)) })},
+	TypeFloat64:    {8, fixedCodec(8, func(b []byte) float64 { return math.Float64frombits(binary.LittleEndian.Uint64(b)) })},
+	TypeString:     {8, stringCodec},
+	TypeRow:        {8, refCodec(TypeRow, 8)},
+	TypeForeignRow: {16, refCodec(TypeForeignRow, 16)},
+	TypeEnumRow:    {4, refCodec(TypeEnumRow, 4)},
+	TypeLongID:     {16, codec{scalar: decodeLongID}},
+	TypeArray:      {16, codec{}},
 }
 
 func readSlice[T any](data []byte, count uint64, size int, decode func([]byte) T) ([]T, error) {
@@ -432,7 +440,7 @@ var stringCodec = codec{
 	},
 }
 
-func refCodec(ft FieldType) codec {
+func refCodec(ft FieldType, stride int) codec {
 	return codec{
 		scalar: func(_ *decoder, data []byte) (interface{}, error) {
 			value := binary.LittleEndian.Uint32(data)
@@ -442,7 +450,6 @@ func refCodec(ft FieldType) codec {
 			return &value, nil
 		},
 		slice: func(_ *decoder, data []byte, count uint64) (interface{}, error) {
-			stride := ft.Size()
 			elementSize := stride
 			if ft == TypeForeignRow || ft == TypeEnumRow {
 				elementSize = ElementSize64BitForeignRow

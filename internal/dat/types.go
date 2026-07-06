@@ -23,42 +23,12 @@ const (
 )
 
 func (ft FieldType) Valid() bool {
-	switch ft {
-	case TypeBool, TypeString,
-		TypeInt16, TypeUint16, TypeInt32, TypeUint32, TypeInt64, TypeUint64,
-		TypeFloat32, TypeFloat64,
-		TypeRow, TypeForeignRow, TypeEnumRow, TypeLongID, TypeArray:
-		return true
-	default:
-		return false
-	}
+	_, ok := fieldTypes[ft]
+	return ok
 }
 
 func (ft FieldType) Size() int {
-	switch ft {
-	case TypeBool:
-		return 1
-	case TypeInt16, TypeUint16:
-		return 2
-	case TypeInt32, TypeUint32, TypeFloat32:
-		return 4
-	case TypeInt64, TypeUint64, TypeFloat64:
-		return 8
-	case TypeRow:
-		return 8 // FIELD_SIZE.KEY - always 8 bytes like poe-dat-viewer
-	case TypeForeignRow:
-		return 16 // FIELD_SIZE.KEY_FOREIGN - always 16 bytes like poe-dat-viewer
-	case TypeEnumRow:
-		return 4 // enumrow is always 4 bytes per poe-dat-viewer
-	case TypeString:
-		return 8 // FIELD_SIZE.STRING - always 8 bytes like poe-dat-viewer
-	case TypeLongID:
-		return 16 // 64-bit: 16-byte LongID
-	case TypeArray:
-		return 16 // FIELD_SIZE.ARRAY - always 16 bytes like poe-dat-viewer
-	default:
-		return 0
-	}
+	return fieldTypes[ft].size
 }
 
 const (
