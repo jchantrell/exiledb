@@ -20,8 +20,18 @@ for committing to version control and diffing between game versions with
 standard tools like diff and comm.
 
 Use --sizes to append each file's uncompressed size in bytes, tab-separated.
+Use --stats to emit per-dat-table structural metrics and a content hash as
+JSONL (one object per line), suitable for diffing dat changes between patches.
 Use --ggpk to read from a Content.ggpk file instead of downloading from CDN.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		stats, err := cmd.Flags().GetBool("stats")
+		if err != nil {
+			return err
+		}
+		if stats {
+			return extract.WriteDatStats(cmd.Context(), cfg, os.Stdout)
+		}
+
 		sizes, err := cmd.Flags().GetBool("sizes")
 		if err != nil {
 			return err
@@ -88,5 +98,7 @@ func writeLines(lines []string) error {
 
 func init() {
 	manifestCmd.Flags().Bool("sizes", false, "append uncompressed size in bytes to each path, tab-separated")
+	manifestCmd.Flags().Bool("stats", false, "emit per-dat-table structural metrics and content hash as JSONL")
+	manifestCmd.MarkFlagsMutuallyExclusive("sizes", "stats")
 	rootCmd.AddCommand(manifestCmd)
 }
