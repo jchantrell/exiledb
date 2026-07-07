@@ -108,4 +108,5 @@ func init() {
 	flags.StringVar(&flagValues.LogFormat, "log-format", "text", "log format (text, json)")
 	flags.Bool("no-progress", false, "disable progress bar")
 	flags.StringVar(&flagValues.GgpkPath, "ggpk", "", "path to Content.ggpk file (reads from GGPK instead of CDN)")
+	flags.StringVar(&flagValues.SchemaPath, "schema", "", "path to a local schema.min.json (default: download latest release)")
 }

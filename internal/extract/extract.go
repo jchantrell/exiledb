@@ -62,7 +62,7 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) (*Stats, error) 
 
 	var resolvedTables []dat.TableSchema
 	if len(cfg.Tables) > 0 {
-		schema, err := loadCommunitySchema(ctx)
+		schema, err := loadCommunitySchema(ctx, cfg.SchemaPath)
 		if err != nil {
 			return nil, fmt.Errorf("loading community schema: %w", err)
 		}
@@ -200,7 +200,17 @@ func openSource(ctx context.Context, cfg *config.Config, opts Options, gameVersi
 	return manager, nil
 }
 
-func loadCommunitySchema(ctx context.Context) (*dat.CommunitySchema, error) {
+func loadCommunitySchema(ctx context.Context, schemaPath string) (*dat.CommunitySchema, error) {
+	if schemaPath != "" {
+		slog.Info("Using local schema", "path", schemaPath)
+		file, err := os.Open(schemaPath)
+		if err != nil {
+			return nil, fmt.Errorf("opening schema file %s: %w", schemaPath, err)
+		}
+		defer file.Close()
+		return dat.ParseCommunitySchema(file)
+	}
+
 	c, err := cache.New()
 	if err != nil {
 		return nil, err

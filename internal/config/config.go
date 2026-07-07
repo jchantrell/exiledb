@@ -6,14 +6,15 @@ import (
 )
 
 type Config struct {
-	Patch     string
-	Database  string
-	Tables    []string
-	Files     []string
-	Languages []string
-	LogLevel  string
-	LogFormat string
-	GgpkPath  string
+	Patch      string
+	Database   string
+	Tables     []string
+	Files      []string
+	Languages  []string
+	LogLevel   string
+	LogFormat  string
+	GgpkPath   string
+	SchemaPath string
 }
 
 func Validate(cfg *Config) error {
