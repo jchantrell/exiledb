@@ -16,22 +16,31 @@ const (
 	LanguageSimplifiedChinese  = "Simplified Chinese"
 )
 
-var validLanguages = map[string]bool{
-	LanguageEnglish:            true,
-	LanguageFrench:             true,
-	LanguageGerman:             true,
-	LanguageSpanish:            true,
-	LanguagePortuguese:         true,
-	LanguageRussian:            true,
-	LanguageThai:               true,
-	LanguageJapanese:           true,
-	LanguageKorean:             true,
-	LanguageTraditionalChinese: true,
-	LanguageSimplifiedChinese:  true,
+var supportedLanguages = []string{
+	LanguageEnglish,
+	LanguageFrench,
+	LanguageGerman,
+	LanguageSpanish,
+	LanguagePortuguese,
+	LanguageRussian,
+	LanguageThai,
+	LanguageJapanese,
+	LanguageKorean,
+	LanguageTraditionalChinese,
+	LanguageSimplifiedChinese,
+}
+
+func SupportedLanguages() []string {
+	return append([]string(nil), supportedLanguages...)
 }
 
 func isValidLanguage(language string) bool {
-	return validLanguages[language]
+	for _, l := range supportedLanguages {
+		if l == language {
+			return true
+		}
+	}
+	return false
 }
 
 func validateLanguages(languages []string) error {

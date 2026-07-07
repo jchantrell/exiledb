@@ -32,6 +32,26 @@ func isDatFile(p string) bool {
 	return datFileExtensions[strings.ToLower(path.Ext(p))]
 }
 
+var languageDirs = func() map[string]string {
+	m := make(map[string]string)
+	for _, l := range config.SupportedLanguages() {
+		if l == config.LanguageEnglish {
+			continue
+		}
+		m[strings.ToLower(l)] = l
+	}
+	return m
+}()
+
+func datFileLanguage(p string) string {
+	for _, seg := range strings.Split(p, "/") {
+		if lang, ok := languageDirs[seg]; ok {
+			return lang
+		}
+	}
+	return config.LanguageEnglish
+}
+
 type datStat struct {
 	Path      string `json:"path"`
 	RowCount  int    `json:"row_count"`
@@ -69,10 +89,15 @@ func WriteDatStats(ctx context.Context, cfg *config.Config, w io.Writer) error {
 	}
 	defer manager.Close()
 
+	wantLanguage := make(map[string]bool, len(cfg.Languages))
+	for _, l := range cfg.Languages {
+		wantLanguage[l] = true
+	}
+
 	index := manager.Index()
 	var paths []string
 	for _, p := range index.ListFilesWithPrefix("data") {
-		if isDatFile(p) {
+		if isDatFile(p) && wantLanguage[datFileLanguage(p)] {
 			paths = append(paths, p)
 		}
 	}

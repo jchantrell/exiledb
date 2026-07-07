@@ -22,6 +22,8 @@ standard tools like diff and comm.
 Use --sizes to append each file's uncompressed size in bytes, tab-separated.
 Use --stats to emit per-dat-table structural metrics and a content hash as
 JSONL (one object per line), suitable for diffing dat changes between patches.
+--stats honors --languages (default English), scoping to that language's dat
+files; English is the master data and indicative of genuine table changes.
 Use --ggpk to read from a Content.ggpk file instead of downloading from CDN.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		stats, err := cmd.Flags().GetBool("stats")
