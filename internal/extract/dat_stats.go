@@ -19,17 +19,8 @@ import (
 	"github.com/jchantrell/exiledb/internal/poe"
 )
 
-// datFileExtensions are the boundary-marker table formats. The extension label
-// has changed across patches (.dat64 -> .datc64, with .datcl64 for language
-// variants) while the on-disk format has not.
-var datFileExtensions = map[string]bool{
-	".dat64":   true,
-	".datc64":  true,
-	".datcl64": true,
-}
-
 func isDatFile(p string) bool {
-	return datFileExtensions[strings.ToLower(path.Ext(p))]
+	return strings.ToLower(path.Ext(p)) == poe.DatExtension
 }
 
 var languageDirs = func() map[string]string {
