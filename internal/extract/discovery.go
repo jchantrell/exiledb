@@ -13,17 +13,35 @@ import (
 // pair straight from the resolved schema names, so discovery and insertion
 // agree on exactly which files to fetch.
 func datFilePaths(patch string, tables []dat.TableSchema, languages []string) []string {
-	paths := make([]string, 0, len(tables)*len(languages))
+	paths := make([]string, 0, len(tables)*len(languages)*len(poe.DatExtensions))
 	for _, table := range tables {
 		for _, language := range languages {
-			if language == "English" {
-				paths = append(paths, poe.DatPath(patch, table.Name, poe.DatExtension))
-			} else {
-				paths = append(paths, poe.DatLangPath(patch, language, table.Name, poe.DatExtension))
+			for _, ext := range poe.DatExtensions {
+				if language == "English" {
+					paths = append(paths, poe.DatPath(patch, table.Name, ext))
+				} else {
+					paths = append(paths, poe.DatLangPath(patch, language, table.Name, ext))
+				}
 			}
 		}
 	}
 	return paths
+}
+
+// resolveDatPath returns the actual dat file path for a table/language by
+// trying each 64-bit extension in preference order and returning the first
+// that exists — patches before ~2023 use .dat64, current ones .datc64.
+func resolveDatPath(patch, table, language string, exists func(string) bool) (string, bool) {
+	for _, ext := range poe.DatExtensions {
+		p := poe.DatPath(patch, table, ext)
+		if language != "English" {
+			p = poe.DatLangPath(patch, language, table, ext)
+		}
+		if exists(p) {
+			return p, true
+		}
+	}
+	return "", false
 }
 
 // bundlesForFiles resolves each path to the bundle that stores it. Paths that

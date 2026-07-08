@@ -11,6 +11,13 @@ import (
 
 const DatExtension = ".datc64"
 
+// DatExtensions are the parseable 64-bit dat-table extensions across PoE's
+// history, in preference order: the current .datc64 and the pre-2023 .dat64
+// (both read by the same 64-bit parser). The 32-bit .dat and the localized
+// companion files (.datcl64/.datl64) are excluded — the 32-bit reader was
+// removed and the companions aren't tables.
+var DatExtensions = []string{DatExtension, ".dat64"}
+
 func ParseGameVersion(version string) (int, error) {
 	if version == "" {
 		return 0, fmt.Errorf("version string cannot be empty")

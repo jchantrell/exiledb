@@ -258,12 +258,9 @@ func insertTables(ctx context.Context, cfg *config.Config, db *database.Database
 		insertProgress(i+1, len(datSchemas), datSchema.Name)
 
 		for _, language := range cfg.Languages {
-			path := poe.DatPath(cfg.Patch, datSchema.Name, poe.DatExtension)
-			if language != "English" {
-				path = poe.DatLangPath(cfg.Patch, language, datSchema.Name, poe.DatExtension)
-			}
-			if !manager.FileExists(path) {
-				slog.Debug("File does not exist", "path", path)
+			path, ok := resolveDatPath(cfg.Patch, datSchema.Name, language, manager.FileExists)
+			if !ok {
+				slog.Debug("File does not exist", "table", datSchema.Name, "language", language)
 				continue
 			}
 			languagesSeen[language] = true

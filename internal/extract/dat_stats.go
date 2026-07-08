@@ -20,7 +20,13 @@ import (
 )
 
 func isDatFile(p string) bool {
-	return strings.ToLower(path.Ext(p)) == poe.DatExtension
+	ext := strings.ToLower(path.Ext(p))
+	for _, e := range poe.DatExtensions {
+		if ext == e {
+			return true
+		}
+	}
+	return false
 }
 
 var languageDirs = func() map[string]string {
