@@ -29,8 +29,15 @@ mkdir -p "$OUT" "$W"
 go build -C "$REPO" -o "$DIR/data/exiledb" ./cmd/exiledb
 EXE="$DIR/data/exiledb"
 
-pull() { "$DDL" -app "$APP" -depot "$CONTENT" -manifest "$1" -filelist "$2" -dir "$3" \
-           -username "$ACCOUNT" -remember-password </dev/null >/dev/null 2>&1; }
+# Steam rate-limits login frequency, so a rate-limit is fatal to the run: keep
+# retrying only burns the budget and lengthens the penalty. Surface it via
+# RATELIMIT so the loop can stop immediately and be resumed after a cooldown.
+RATELIMIT=0
+pull() {
+  "$DDL" -app "$APP" -depot "$CONTENT" -manifest "$1" -filelist "$2" -dir "$3" \
+    -username "$ACCOUNT" -remember-password </dev/null >"$W/ddl.log" 2>&1
+  grep -q 'RateLimitExceeded' "$W/ddl.log" && RATELIMIT=1
+}
 
 prev=""
 while IFS=$'\t' read -r epoch date manifest; do
@@ -42,10 +49,12 @@ while IFS=$'\t' read -r epoch date manifest; do
 
   printf 'regex:^Bundles2/_\\.index\\.bin$\n' > "$W/fl_index.txt"
   pull "$manifest" "$W/fl_index.txt" "$W/idx"
+  [ "$RATELIMIT" = 1 ] && { echo "RATE-LIMITED at $epoch ($date) — stopping. Cool down, then rerun to resume."; break; }
   [ -f "$W/idx/Bundles2/_.index.bin" ] || { echo "SKIP $epoch ($date): index pull failed ($manifest)"; continue; }
   mkdir -p "$CACHE/$ver"; cp "$W/idx/Bundles2/_.index.bin" "$CACHE/$ver/_.index.bin"
   go run -C "$REPO" ./backfill/cmd/datbundles "$ver" > "$W/fl_data.txt"
   pull "$manifest" "$W/fl_data.txt" "$W/bundles"
+  [ "$RATELIMIT" = 1 ] && { echo "RATE-LIMITED at $epoch ($date) — stopping. Cool down, then rerun to resume."; rm -rf "$OUT/$epoch" "$CACHE/$ver"; break; }
   find "$W/bundles/Bundles2" -name '*.bundle.bin' 2>/dev/null | while read -r f; do
     rel=${f#"$W"/bundles/Bundles2/}; name=${rel%.bundle.bin}; san=${name//\//_}
     cp "$f" "$CACHE/$ver/$san"
