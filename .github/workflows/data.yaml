@@ -146,25 +146,6 @@ jobs:
             ADDED=$(wc -l < out/added-files.txt)
             REMOVED=$(wc -l < out/removed-files.txt)
 
-            if curl -sfL "https://github.com/$REPO/releases/download/data-$GAME-$PREV/dat-stats.jsonl" -o out/dat-prev.jsonl \
-              && [ -s out/dat-prev.jsonl ]; then
-              # Flatten each snapshot to a path-keyed TSV: path, sha256, row_count, row_width, var_size.
-              flatten() { jq -r '[.path,.sha256,.row_count,.row_width,.var_size]|@tsv' "$1" | LC_ALL=C sort -t"$TAB" -k1,1; }
-              flatten out/dat-prev.jsonl > out/dat-prev.tsv
-              flatten out/dat-stats.jsonl > out/dat-cur.tsv
-              {
-                LC_ALL=C join -t"$TAB" -v2 -o 2.1 out/dat-prev.tsv out/dat-cur.tsv | sed 's/^/+ /'
-                LC_ALL=C join -t"$TAB" -v1 -o 1.1 out/dat-prev.tsv out/dat-cur.tsv | sed 's/^/- /'
-                LC_ALL=C join -t"$TAB" -o 1.1,1.2,2.2,1.3,2.3,1.4,2.4,1.5,2.5 out/dat-prev.tsv out/dat-cur.tsv \
-                  | awk -F"$TAB" '$2 != $3 { cls=($6!=$7)?"schema":($4!=$5)?"rows":($8!=$9)?"data":"value"; printf "~ %s [%s]\n", $1, cls }'
-              } | sed -E 's#^([-+~] )data/(balance/)?#\1#; s#\.datc64##' > out/dat-diff.txt
-              DAT_ADDED=$(grep -c '^+' out/dat-diff.txt || true)
-              DAT_REMOVED=$(grep -c '^-' out/dat-diff.txt || true)
-              DAT_CHANGED=$(grep -c '^~' out/dat-diff.txt || true)
-              DAT_VALUE=$(grep -c '\[value\]' out/dat-diff.txt || true)
-              DAT_LINE="- Dat files: $DAT_TOTAL, $DAT_ADDED added, $DAT_REMOVED removed, $DAT_CHANGED changed ($DAT_VALUE value-only) (\`dat-diff.txt\`)"
-            fi
-
             {
               echo "File manifest for $TITLE patch $VERSION."
               echo

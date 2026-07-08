@@ -9,14 +9,16 @@ in CI (`.github/workflows/data.yaml`); this is only for the historical tail.
 - **Phase 0 — schema corpus** (`build-corpus.sh`): generate `schema.min.json` for
   every `dat-schema` commit → `data/corpus/<date>_<hash>.json` + `corpus-index.tsv`.
   Only needed for content-tier (named/typed) releases; the structural release
-  format (`manifest.txt` + `dat-stats.jsonl` + `dat-diff.txt`) is schema-free.
+  format (`manifest.txt` + `dat-stats.jsonl` + `versions.json` + file diffs) is
+  schema-free.
 
 - **Phase 1 — backfill** (`backfill.sh`): for each catalog entry, oldest→newest:
   derive the version from the program-depot exe build tag, Steam-pull the content
-  index + dat bundles, run `exiledb manifest`/`--stats`, diff vs the previous
-  release (`dat-diff.sh`, mirrors the CI logic), prune. Writes artifacts to
+  index + dat bundles, run `exiledb manifest`/`--stats`, diff files vs the
+  previous release (`dat-diff.sh`), prune. Writes artifacts to
   `data/out/<version>/`. **Does not publish** — run `gh release` yourself once
-  the artifacts look right.
+  the artifacts look right. dat-level diffs aren't persisted — they're derivable
+  from any two `dat-stats.jsonl`.
 
 ## The catalog is the gate
 
