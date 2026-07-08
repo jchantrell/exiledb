@@ -18,7 +18,7 @@ flatten "$PS" > "$OUT/dp.tsv"; flatten "$CS" > "$OUT/dc.tsv"
   LC_ALL=C join -t"$TAB" -v1 -o 1.1 "$OUT/dp.tsv" "$OUT/dc.tsv" | sed 's/^/- /'
   LC_ALL=C join -t"$TAB" -o 1.1,1.2,2.2,1.3,2.3,1.4,2.4,1.5,2.5 "$OUT/dp.tsv" "$OUT/dc.tsv" \
     | awk -F"$TAB" '$2!=$3{cls=($6!=$7)?"schema":($4!=$5)?"rows":($8!=$9)?"data":"value"; printf "~ %s [%s]\n",$1,cls}'
-} > "$OUT/dat-diff.txt"
+} | sed -E 's#^([-+~] )data/(balance/)?#\1#; s#\.datc64##' > "$OUT/dat-diff.txt"
 rm -f "$OUT/pf.txt" "$OUT/cf.txt" "$OUT/dp.tsv" "$OUT/dc.tsv"
 
 printf 'files +%s/-%s  dats: +%s -%s ~%s (schema=%s rows=%s data=%s value=%s)\n' \
