@@ -63,28 +63,60 @@ jobs:
       VERSION: ${{ needs.fetch-versions.outputs[format('{0}_version', matrix.game)] }}
       REPO: ${{ github.repository }}
     steps:
+      - uses: actions/checkout@v5
+
       - name: Decide whether to run
         id: gate
         env:
           FORCE: ${{ github.event_name == 'workflow_dispatch' }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           if [ -z "$VERSION" ]; then
             echo "no valid $GAME version, skipping"
             echo "run=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+
+          # Current Steam content-depot manifest via anonymous PICS (public, no
+          # license). Correlates the CDN release to a Steam manifest and lets us
+          # skip client-only bumps (where the content manifest is unchanged).
+          case "$GAME" in
+            poe1) APP=238960; DEPOT=238961 ;;
+            poe2) APP=2694490; DEPOT=2694491 ;;
+          esac
+          pip install --quiet --disable-pip-version-check steam >/dev/null 2>&1 || true
+          MANIFEST=$(python3 .github/scripts/pics-manifest.py "$APP" "$DEPOT" 2>/dev/null || true)
+          echo "manifest=$MANIFEST" >> "$GITHUB_OUTPUT"
+
           if [ "$FORCE" = "true" ]; then
+            echo "run=true (forced), manifest=$MANIFEST"
             echo "run=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           RUN=true
+          # Already released this CDN version?
           curl -sfIL -o /dev/null "https://github.com/$REPO/releases/download/data-$GAME-$VERSION/manifest.txt" && RUN=false
-          echo "$GAME gate: version=$VERSION run=$RUN"
-          echo "run=$RUN" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/checkout@v5
-        if: steps.gate.outputs.run == 'true'
+          # If the Steam content manifest hasn't advanced past the latest CDN
+          # release, either it's a client-only bump OR Steam hasn't propagated
+          # the new content yet (CDN/Steam aren't lockstep). Either way, skip now
+          # and let a later run pick it up once Steam moves — this also keeps the
+          # recorded manifest correlated to the CDN version we publish.
+          if [ "$RUN" = "true" ] && [ -n "$MANIFEST" ]; then
+            LATEST=$(gh release list --repo "$REPO" --limit 1000 --json tagName --jq '.[].tagName' \
+              | sed -n "s/^data-$GAME-//p" | grep -E '^[0-9]+(\.[0-9]+)+$' | sort -V | tail -1)
+            if [ -n "$LATEST" ]; then
+              PREV_M=$(curl -sfL "https://github.com/$REPO/releases/download/data-$GAME-$LATEST/versions.json" | jq -r '.manifest // empty' 2>/dev/null)
+              if [ -n "$PREV_M" ] && [ "$MANIFEST" = "$PREV_M" ]; then
+                RUN=false
+                echo "Steam content manifest $MANIFEST not advanced past $LATEST -> client-only or not yet propagated, skipping (a later run retries)"
+              fi
+            fi
+          fi
+
+          echo "$GAME gate: version=$VERSION manifest=$MANIFEST run=$RUN"
+          echo "run=$RUN" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-go@v5
         if: steps.gate.outputs.run == 'true'
@@ -108,7 +140,7 @@ jobs:
             EXE_TAG=$(strings -n 5 out/poe.exe | grep -oiE 'tags/[0-9][0-9.]*[a-z]?' | sed 's|tags/||' | sort -V | tail -1)
           fi
           rm -f out/poe.exe
-          printf '{"exe_tag":"%s","cdn_version":"%s"}\n' "$EXE_TAG" "$VERSION" > out/versions.json
+          printf '{"cdn_version":"%s","manifest":"%s","exe_tag":"%s"}\n' "$VERSION" "${{ steps.gate.outputs.manifest }}" "$EXE_TAG" > out/versions.json
 
           LINES=$(wc -l < out/manifest.txt)
           if [ "$LINES" -lt 100000 ]; then

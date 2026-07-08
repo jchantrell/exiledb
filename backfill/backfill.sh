@@ -53,9 +53,9 @@ while IFS=$'\t' read -r content program date; do
   mkdir -p "$OUT/$ver"
   "$EXE" manifest --patch "$ver" > "$OUT/$ver/manifest.txt" 2>/dev/null
   "$EXE" manifest --patch "$ver" --stats > "$OUT/$ver/dat-stats.jsonl" 2>/dev/null
-  # Both version variants; cdn_version is unrecoverable for historical patches.
-  printf '{"exe_tag":"%s","cdn_version":null,"manifest":"%s","date":"%s"}\n' \
-    "$ver" "$content" "$date" > "$OUT/$ver/versions.json"
+  # cdn_version is unrecoverable for historical patches; manifest is the key.
+  printf '{"cdn_version":null,"manifest":"%s","exe_tag":"%s","date":"%s"}\n' \
+    "$content" "$ver" "$date" > "$OUT/$ver/versions.json"
 
   if [ -n "$prev" ] && [ -f "$OUT/$prev/dat-stats.jsonl" ]; then
     summary=$("$DIR/dat-diff.sh" "$OUT/$prev/manifest.txt" "$OUT/$ver/manifest.txt" \
