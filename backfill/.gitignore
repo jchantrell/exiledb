@@ -1,0 +1,5 @@
+# Local-only backfill working data (schemas, caches, pulled bundles, outputs)
+data/
+dat-schema/
+depots/
+*.log
