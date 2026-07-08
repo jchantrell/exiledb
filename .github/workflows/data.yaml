@@ -99,6 +99,17 @@ jobs:
           ./exiledb manifest --patch "$VERSION" > out/manifest.txt
           ./exiledb manifest --patch "$VERSION" --stats > out/dat-stats.jsonl
 
+          # Record both version variants: the CDN version (this run) and the exe
+          # build tag pulled from the same CDN dir. Builds a CDN<->tag mapping
+          # over time that historical backfills can't recover.
+          case "$GAME" in poe1) CDN=patch.poecdn.com ;; poe2) CDN=patch-poe2.poecdn.com ;; esac
+          EXE_TAG=""
+          if curl -sfL "https://$CDN/$VERSION/PathOfExile.exe" -o out/poe.exe; then
+            EXE_TAG=$(strings -n 5 out/poe.exe | grep -oiE 'tags/[0-9][0-9.]*[a-z]?' | sed 's|tags/||' | sort -V | tail -1)
+          fi
+          rm -f out/poe.exe
+          printf '{"exe_tag":"%s","cdn_version":"%s"}\n' "$EXE_TAG" "$VERSION" > out/versions.json
+
           LINES=$(wc -l < out/manifest.txt)
           if [ "$LINES" -lt 100000 ]; then
             echo "::error::$GAME manifest has only $LINES lines, refusing to publish"

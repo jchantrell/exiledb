@@ -12,7 +12,7 @@ case "$GAME" in
 esac
 
 ASSETS=("$OUT/manifest.txt" "$OUT/dat-stats.jsonl")
-for f in added-files.txt removed-files.txt dat-diff.txt; do
+for f in versions.json added-files.txt removed-files.txt dat-diff.txt; do
   if [ -s "$OUT/$f" ]; then
     ASSETS+=("$OUT/$f")
   fi
