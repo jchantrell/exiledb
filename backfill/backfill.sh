@@ -13,7 +13,7 @@
 #
 # Catalog format (TSV, header skipped): epoch <TAB> date <TAB> content-manifest
 # Required env: DDL=<DepotDownloader path>  ACCOUNT=<steam user (session cached)>
-# Optional env: APP CONTENT_DEPOT MAJOR CATALOG
+# Optional env: APP CONTENT_DEPOT MAJOR CATALOG THROTTLE(seconds between patches)
 set -uo pipefail
 DIR=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$DIR/.." && pwd)
@@ -76,6 +76,7 @@ while IFS=$'\t' read -r epoch date manifest; do
 
   rm -rf "$CACHE/$ver" "$W/idx" "$W/bundles"
   prev="$epoch"
+  [ "${THROTTLE:-0}" != 0 ] && sleep "$THROTTLE"
 done < <(LC_ALL=C sort -t$'\t' -k1,1n "$CATALOG")
 
 echo "backfill complete. artifacts in $OUT/"
