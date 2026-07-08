@@ -10,3 +10,6 @@
 /regression/
 .regression-bin/
 .regression-out/
+
+# DepotDownloader output
+depots/

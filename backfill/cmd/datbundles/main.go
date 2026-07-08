@@ -1,5 +1,5 @@
 // Command datbundles prints the DepotDownloader filelist of every bundle that
-// holds a .datc64 file for a cached patch, so the backfill driver can pull
+// holds a 64-bit dat file for a cached patch, so the backfill driver can pull
 // exactly the bundles `manifest --stats` needs (no CDN fallback for historical
 // patches). Usage: datbundles <patch-label>
 package main
@@ -8,11 +8,13 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"slices"
 	"sort"
 	"strings"
 
 	"github.com/jchantrell/exiledb/internal/bundle"
 	"github.com/jchantrell/exiledb/internal/cache"
+	"github.com/jchantrell/exiledb/internal/poe"
 )
 
 func main() {
@@ -33,7 +35,7 @@ func main() {
 	idx := mgr.Index()
 	seen := map[string]struct{}{}
 	for _, f := range idx.ListFiles() {
-		if strings.ToLower(path.Ext(f)) != ".datc64" {
+		if !slices.Contains(poe.DatExtensions, strings.ToLower(path.Ext(f))) {
 			continue
 		}
 		if loc, err := idx.GetFileInfo(f); err == nil {
