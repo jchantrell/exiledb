@@ -55,8 +55,11 @@ while IFS=$'\t' read -r epoch date manifest; do
   go run -C "$REPO" ./backfill/cmd/datbundles "$ver" > "$W/fl_data.txt"
   pull "$manifest" "$W/fl_data.txt" "$W/bundles"
   [ "$RATELIMIT" = 1 ] && { echo "RATE-LIMITED at $epoch ($date) — stopping. Cool down, then rerun to resume."; rm -rf "$OUT/$epoch" "$CACHE/$ver"; break; }
+  # Sanitize exactly as cache.BundlePath does (slash AND space -> underscore),
+  # or the cache source won't find space-named bundles (e.g. "traditional
+  # chinese.dat64") and --stats falls back to CDN -> 404 on historical patches.
   find "$W/bundles/Bundles2" -name '*.bundle.bin' 2>/dev/null | while read -r f; do
-    rel=${f#"$W"/bundles/Bundles2/}; name=${rel%.bundle.bin}; san=${name//\//_}
+    rel=${f#"$W"/bundles/Bundles2/}; name=${rel%.bundle.bin}; san=${name//\//_}; san=${san// /_}
     cp "$f" "$CACHE/$ver/$san"
   done
 
