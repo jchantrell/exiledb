@@ -15,7 +15,8 @@ in CI (`.github/workflows/data.yaml`); this is only for the historical tail.
 - **Phase 1 — backfill** (`backfill.sh`): for each catalog entry, oldest→newest:
   Steam-pull the content index + dat bundles, run `exiledb manifest`/`--stats`,
   diff files vs the previous release (`dat-diff.sh`), prune. Writes artifacts to
-  `data/out/<epoch>/`. Releases are keyed by the content manifest's patch epoch
+  `data/out/<game>/<epoch>/` (each game's history in its own tree). Releases are
+  keyed by the content manifest's patch epoch
   (Unix seconds) — historical CDN/exe versions are unrecoverable, so the manifest
   date is the stable label (no program depot, no client version tag). **Does not
   publish** — run `gh release` yourself once the artifacts look right. dat-level

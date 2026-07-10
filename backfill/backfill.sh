@@ -21,7 +21,8 @@ REPO=$(cd "$DIR/.." && pwd)
 : "${ACCOUNT:?set ACCOUNT=<steam login (remember-password cached)>}"
 APP=${APP:-238960}; CONTENT=${CONTENT_DEPOT:-238961}; MAJOR=${MAJOR:-3}
 CATALOG=${CATALOG:-"$DIR/poe1-content.tsv"}
-OUT="$DIR/data/out"
+GAME=${GAME:-$([ "$MAJOR" = 4 ] && echo poe2 || echo poe1)}   # keep each game's history in its own tree
+OUT="$DIR/data/out/$GAME"
 W="$DIR/data/work"
 CACHE="$HOME/.exiledb/cache"
 mkdir -p "$OUT" "$W"
