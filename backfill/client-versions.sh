@@ -21,6 +21,7 @@ case "$GAME" in
   *) echo "unknown GAME=$GAME"; exit 2;;
 esac
 PAIRING=${PAIRING:-"$DIR/$GAME-pairing.tsv"}
+LEAGUES="$DIR/leagues.tsv"   # game<TAB>version-prefix<TAB>league (short name)
 OUT="$DIR/data/out/$GAME"
 CACHE="$DIR/data/versions-$GAME.tsv"   # program_manifest <TAB> version (resumable)
 W="$DIR/data/work"
@@ -56,7 +57,11 @@ while IFS=$'\t' read -r ce cm pm; do
   [ "$ce" = content_epoch ] && continue
   vj="$OUT/$ce/versions.json"; [ -f "$vj" ] || continue
   v=$(grep -P "^$pm\t" "$CACHE" | head -1 | cut -f2); [ -z "$v" ] && continue
+  pref=$(printf '%s' "$v" | grep -oE '^[0-9]+\.[0-9]+')
+  lg=$(awk -F'\t' -v g="$GAME" -v p="$pref" '$1==g && $2==p{print $3}' "$LEAGUES")
   tmp=$(mktemp)
-  jq --arg v "$v" --arg pm "$pm" '. + {client_version:$v, program_manifest:$pm}' "$vj" > "$tmp" && mv "$tmp" "$vj" && wrote=$((wrote+1))
+  jq --arg v "$v" --arg pm "$pm" --arg lg "$lg" \
+     '. + {client_version:$v, program_manifest:$pm} + (if $lg=="" then {} else {league:$lg} end)' \
+     "$vj" > "$tmp" && mv "$tmp" "$vj" && wrote=$((wrote+1))
 done < "$PAIRING"
 echo "done: resolved=$(($(wc -l <"$CACHE"))) versions cached, wrote client_version into $wrote releases"
