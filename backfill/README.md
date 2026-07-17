@@ -1,48 +1,69 @@
 # backfill
 
-Local, one-shot tooling to reconstruct historical data releases from Steam
-depots (not the CDN, which only serves the current patch). Ongoing releases stay
-in CI (`.github/workflows/data.yaml`); this is only for the historical tail.
+Repo tooling to reconstruct historical data releases from Steam depots (not the
+CDN, which only serves the current patch). Ongoing releases stay in CI
+(`.github/workflows/data.yaml`); this is only for the historical tail. It is not
+part of the `exiledb` CLI.
+
+Everything except the schema corpus lives in one Go command
+(`cmd/backfill`), which calls exiledb's own `internal/` packages directly —
+cache paths, index handling and dat parsing come from one implementation rather
+than being restated around the binary. DepotDownloader is the only external
+process.
 
 ## Phases
 
 - **Phase 0 — schema corpus** (`build-corpus.sh`): generate `schema.min.json` for
   every `dat-schema` commit → `data/corpus/<date>_<hash>.json` + `corpus-index.tsv`.
-  Only needed for content-tier (named/typed) releases; the structural release
-  format (`manifest.txt` + `dat-stats.jsonl` + `versions.json` + file diffs) is
-  schema-free.
+  Shell because it just drives `git` and `npm` over every commit. Only needed for
+  content-tier (named/typed) releases; the structural release format
+  (`manifest.txt` + `dat-stats.jsonl` + `versions.json` + file diffs) is schema-free.
 
-- **Phase 1 — backfill** (`backfill.sh`): for each catalog entry, oldest→newest:
-  Steam-pull the content index + dat bundles, run `exiledb manifest`/`--stats`,
-  diff files vs the previous release (`dat-diff.sh`), prune. Writes artifacts to
-  `data/out/<game>/<epoch>/` (each game's history in its own tree). Releases are
-  keyed by the content manifest's patch epoch
-  (Unix seconds) — historical CDN/exe versions are unrecoverable, so the manifest
-  date is the stable label (no program depot, no client version tag). **Does not
-  publish** — run `gh release` yourself once the artifacts look right. dat-level
-  diffs aren't persisted — they're derivable from any two `dat-stats.jsonl`.
+- **Phase 1 — pull** (`backfill pull`): for each catalog entry, oldest→newest:
+  Steam-pull the content index + the bundles holding dat tables, write
+  `manifest.txt` / `dat-stats.jsonl` / `versions.json`, diff files against the
+  previous release, prune the bundles. Writes to `data/out/<game>/<epoch>/`, each
+  game in its own tree. Releases are keyed by the content manifest's patch
+  **epoch** (Unix seconds): historical CDN versions are unrecoverable, so the
+  patch date is the stable label. dat-level diffs aren't persisted — they're
+  derivable from any two `dat-stats.jsonl`.
 
-## The catalog is the gate
+- **Phase 2 — versions** (`backfill versions`): pair each release with the
+  program manifest live at its patch, read that build's `PathOfExileSteam.exe`
+  for its build tag, and add `client_version`, `program_manifest` and `league` to
+  `versions.json`. The exe is the only place a historical client version
+  survives. The epoch stays the release key; these are labels.
 
-One catalog per game, same format — TSV `epoch <TAB> date <TAB> content-manifest`,
-header skipped:
+**Neither publishes** — run `gh release` yourself once the artifacts look right.
 
-- `poe1-content.tsv` — app 238960, content depot 238961
-- `poe2-content.tsv` — app 2694490, content depot 2694491
+## The catalogs are the gate
 
-Steam has no history API and manifest IDs aren't enumerable, so the full list
-lives on SteamDB: export the content depot's manifest history and parse it into
-this format.
+Steam has no history API and manifest IDs aren't enumerable, so the lists come
+from SteamDB: export a depot's manifest history and parse it into
+`epoch <TAB> date <TAB> manifest` (header skipped).
+
+| file | depot |
+| --- | --- |
+| `poe1-content.tsv` | app 238960, content 238961 |
+| `poe1-program.tsv` | app 238960, program 238962 |
+| `poe2-content.tsv` | app 2694490, content 2694491 |
+| `poe2-program.tsv` | app 2694490, program 2694492 |
+
+`leagues.tsv` maps a `<game> <TAB> major.minor <TAB> league` prefix to the short
+league name used in `versions.json`.
 
 ## Run
 
-    ./build-corpus.sh                 # Phase 0 (optional; content tier only)
-    # PoE1 (defaults):
-    DDL=/path/to/DepotDownloader ACCOUNT=<steam-user> ./backfill.sh
-    # PoE2:
-    DDL=... ACCOUNT=... APP=2694490 CONTENT_DEPOT=2694491 MAJOR=4 \
-      CATALOG=poe2-content.tsv ./backfill.sh
+    ./build-corpus.sh                                    # Phase 0 (optional; content tier only)
 
-Optional `THROTTLE=<seconds>` spaces out patches to stay under Steam's login
-rate limit. `ACCOUNT` must own the game's license and have a cached session
-(`-remember-password`). `data/` is git-ignored.
+    go run ./cmd/backfill pull     -game poe1 -throttle 8s
+    go run ./cmd/backfill versions -game poe1 -throttle 8s
+
+`-ddl` and `-account` default to `$DDL` and `$ACCOUNT`. The account must own the
+game's license and have a cached session (`-remember-password`); that session is
+keyed to the DepotDownloader path, so keep it stable.
+
+Both commands are resumable: `pull` skips releases already built, `versions`
+skips builds already in `data/versions-<game>.tsv`. Steam rate-limits login
+frequency, so both stop cleanly on `RateLimitExceeded` — cool down and rerun.
+`-throttle` spaces out pulls to stay under it. `data/` is git-ignored.
