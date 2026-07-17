@@ -11,7 +11,7 @@ case "$GAME" in
   *) echo "unknown game: $GAME" >&2; exit 1 ;;
 esac
 
-ASSETS=("$OUT/manifest.txt" "$OUT/dat-stats.jsonl")
+ASSETS=("$OUT/manifest.txt.gz" "$OUT/dat-stats.jsonl")
 for f in versions.json added-files.txt removed-files.txt; do
   if [ -s "$OUT/$f" ]; then
     ASSETS+=("$OUT/$f")

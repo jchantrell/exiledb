@@ -95,8 +95,9 @@ jobs:
           fi
 
           RUN=true
-          # Already released this CDN version?
-          curl -sfIL -o /dev/null "https://github.com/$REPO/releases/download/data-$GAME-$VERSION/manifest.txt" && RUN=false
+          # Already released this CDN version? Ask for the release itself rather
+          # than probing an asset, so it stays correct as asset names change.
+          gh release view "data-$GAME-$VERSION" --repo "$REPO" >/dev/null 2>&1 && RUN=false
 
           # If the Steam content manifest hasn't advanced past the latest CDN
           # release, either it's a client-only bump OR Steam hasn't propagated
@@ -142,16 +143,16 @@ jobs:
           rm -f out/poe.exe
           printf '{"cdn_version":"%s","manifest":"%s","exe_tag":"%s"}\n' "$VERSION" "${{ steps.gate.outputs.manifest }}" "$EXE_TAG" > out/versions.json
 
-          LINES=$(wc -l < out/manifest.txt)
-          if [ "$LINES" -lt 100000 ]; then
-            echo "::error::$GAME manifest has only $LINES lines, refusing to publish"
-            exit 1
-          fi
-          DAT_LINES=$(wc -l < out/dat-stats.jsonl)
-          if [ "$DAT_LINES" -lt 1000 ]; then
-            echo "::error::$GAME dat stats has only $DAT_LINES lines, refusing to publish"
-            exit 1
-          fi
+          # exiledb exits non-zero on a failed extract and this step runs under
+          # errexit, so that is the real guard. These only catch a success that
+          # somehow wrote nothing; a line-count floor would just encode today's
+          # table count and break on legitimate changes.
+          for f in out/manifest.txt out/dat-stats.jsonl; do
+            if [ ! -s "$f" ]; then
+              echo "::error::$GAME produced an empty $f, refusing to publish"
+              exit 1
+            fi
+          done
 
       - name: Diff against previous release
         if: steps.gate.outputs.run == 'true'
@@ -169,14 +170,43 @@ jobs:
             | sort -uV | awk -v v="$VERSION" '$0==v{print p; exit}{p=$0}')
 
           TAB=$(printf '\t')
-          DAT_LINE="- Dat files: $DAT_TOTAL (\`dat-stats.jsonl\`)"
-          if [ -n "$PREV" ] && [ "$PREV" != "$VERSION" ] \
-            && curl -sfL "https://github.com/$REPO/releases/download/data-$GAME-$PREV/manifest.txt" -o out/prev.txt \
-            && [ "$(wc -l < out/prev.txt)" -ge 100000 ]; then
+          DAT_LINE="- Dat tables: $DAT_TOTAL (\`dat-stats.jsonl\`)"
+          # Releases before the gzip switch carry a raw manifest.txt; newer ones
+          # carry manifest.txt.gz. Accept either so the transition needs no
+          # backfilling of old releases.
+          BASE="https://github.com/$REPO/releases/download/data-$GAME-$PREV"
+          PREV_OK=false
+          if [ -n "$PREV" ] && [ "$PREV" != "$VERSION" ]; then
+            if curl -sfL "$BASE/manifest.txt.gz" -o out/prev.txt.gz && [ -s out/prev.txt.gz ]; then
+              gunzip -f out/prev.txt.gz && PREV_OK=true
+            elif curl -sfL "$BASE/manifest.txt" -o out/prev.txt && [ -s out/prev.txt ]; then
+              PREV_OK=true
+            fi
+          fi
+
+          if [ "$PREV_OK" = true ]; then
             LC_ALL=C comm -13 out/prev.txt out/manifest.txt > out/added-files.txt
             LC_ALL=C comm -23 out/prev.txt out/manifest.txt > out/removed-files.txt
             ADDED=$(wc -l < out/added-files.txt)
             REMOVED=$(wc -l < out/removed-files.txt)
+
+            # Summarise how the dat tables moved. The per-table diff itself isn't
+            # published — it's derivable from any two dat-stats.jsonl — but the
+            # counts are what tell you at a glance whether this is a real content
+            # patch or a value tweak.
+            if curl -sfL "$BASE/dat-stats.jsonl" -o out/dat-prev.jsonl && [ -s out/dat-prev.jsonl ]; then
+              flatten() { jq -r '[.path,.sha256,.row_count,.row_width,.var_size]|@tsv' "$1" | LC_ALL=C sort -t"$TAB" -k1,1; }
+              flatten out/dat-prev.jsonl > out/dat-prev.tsv
+              flatten out/dat-stats.jsonl > out/dat-cur.tsv
+              DAT_ADDED=$(LC_ALL=C join -t"$TAB" -v2 -o 2.1 out/dat-prev.tsv out/dat-cur.tsv | grep -c . || true)
+              DAT_REMOVED=$(LC_ALL=C join -t"$TAB" -v1 -o 1.1 out/dat-prev.tsv out/dat-cur.tsv | grep -c . || true)
+              CLS=$(LC_ALL=C join -t"$TAB" -o 1.2,2.2,1.3,2.3,1.4,2.4,1.5,2.5 out/dat-prev.tsv out/dat-cur.tsv \
+                | awk -F"$TAB" '$1!=$2 { print ($5!=$6)?"schema":($3!=$4)?"rows":($7!=$8)?"data":"value" }')
+              DAT_CHANGED=$(printf '%s' "$CLS" | grep -c . || true)
+              DAT_VALUE=$(printf '%s' "$CLS" | grep -c '^value$' || true)
+              DAT_LINE="- Dat tables: $DAT_TOTAL — $DAT_ADDED added, $DAT_REMOVED removed, $DAT_CHANGED changed ($DAT_VALUE value-only) (\`dat-stats.jsonl\`)"
+              rm -f out/dat-prev.jsonl out/dat-prev.tsv out/dat-cur.tsv
+            fi
 
             {
               echo "File manifest for $TITLE patch $VERSION."
@@ -197,6 +227,13 @@ jobs:
               echo "No previous release available to diff against."
             } > out/notes.md
           fi
+          rm -f out/prev.txt
+
+          # manifest.txt is by far the largest asset (66-265MB) and compresses
+          # ~15x. Release assets always download rather than preview in the UI,
+          # so gzipping costs nothing but a gunzip. The small, browsable assets
+          # stay raw.
+          gzip -9 out/manifest.txt
 
       - name: Upsert release
         if: steps.gate.outputs.run == 'true'
