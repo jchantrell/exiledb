@@ -20,16 +20,21 @@ import (
 	"github.com/jchantrell/exiledb/internal/poe"
 )
 
-// release is the versions.json payload. The epoch keys the release; the client
-// version and league are meaningful labels added by the versions command, and
-// are absent until then.
+// release is the versions.json payload, shared with the CI workflow that
+// publishes going-forward releases so both eras carry one schema. Fields absent
+// on one side are omitted rather than nulled: cdn_version is unrecoverable
+// historically, program_manifest has no CI equivalent.
+//
+// The epoch keys the release; client_version is the human label, added by the
+// versions command and absent until then.
 type release struct {
-	Manifest        string `json:"manifest"`
-	Epoch           int64  `json:"epoch"`
-	Date            string `json:"date"`
+	Game            string `json:"game"`
 	ClientVersion   string `json:"client_version,omitempty"`
+	Date            string `json:"date"`
+	Epoch           int64  `json:"epoch"`
+	Manifest        string `json:"manifest"`
 	ProgramManifest string `json:"program_manifest,omitempty"`
-	League          string `json:"league,omitempty"`
+	CDNVersion      string `json:"cdn_version,omitempty"`
 }
 
 func writeRelease(path string, r release) error {

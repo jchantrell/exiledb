@@ -132,16 +132,26 @@ jobs:
           ./exiledb manifest --patch "$VERSION" > out/manifest.txt
           ./exiledb manifest --patch "$VERSION" --stats > out/dat-stats.jsonl
 
-          # Record both version variants: the CDN version (this run) and the exe
-          # build tag pulled from the same CDN dir. Builds a CDN<->tag mapping
-          # over time that historical backfills can't recover.
+          # The client version is read from the exe, the same way the historical
+          # backfill reads it from the program depot — it is the one label both
+          # eras can derive without human input, so it names the release.
           case "$GAME" in poe1) CDN=patch.poecdn.com ;; poe2) CDN=patch-poe2.poecdn.com ;; esac
-          EXE_TAG=""
+          CLIENT_VERSION=""
           if curl -sfL "https://$CDN/$VERSION/PathOfExile.exe" -o out/poe.exe; then
-            EXE_TAG=$(strings -n 5 out/poe.exe | grep -oiE 'tags/[0-9][0-9.]*[a-z]?' | sed 's|tags/||' | sort -V | tail -1)
+            CLIENT_VERSION=$(strings -n 5 out/poe.exe | grep -oiE 'tags/[0-9][0-9.]*[a-z]?' | sed 's|tags/||' | sort -V | tail -1)
           fi
           rm -f out/poe.exe
-          printf '{"cdn_version":"%s","manifest":"%s","exe_tag":"%s"}\n' "$VERSION" "${{ steps.gate.outputs.manifest }}" "$EXE_TAG" > out/versions.json
+
+          # One schema across both eras (see backfill/cmd/backfill/artifacts.go).
+          # cdn_version is CI-only — it is unrecoverable for historical patches —
+          # and epoch here is publish time rather than the exact push time
+          # SteamDB gives the backfill.
+          jq -n --arg game "$GAME" --arg cv "$CLIENT_VERSION" --arg date "$(date -u +%F)" \
+                --argjson epoch "$(date -u +%s)" --arg manifest "${{ steps.gate.outputs.manifest }}" \
+                --arg cdn "$VERSION" \
+            '{game:$game, date:$date, epoch:$epoch, cdn_version:$cdn}
+             + (if $cv == "" then {} else {client_version:$cv} end)
+             + (if $manifest == "" then {} else {manifest:$manifest} end)' > out/versions.json
 
           # exiledb exits non-zero on a failed extract and this step runs under
           # errexit, so that is the real guard. These only catch a success that

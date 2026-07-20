@@ -30,9 +30,10 @@ process.
 
 - **Phase 2 — versions** (`backfill versions`): pair each release with the
   program manifest live at its patch, read that build's `PathOfExileSteam.exe`
-  for its build tag, and add `client_version`, `program_manifest` and `league` to
+  for its build tag, and add `client_version` and `program_manifest` to
   `versions.json`. The exe is the only place a historical client version
-  survives. The epoch stays the release key; these are labels.
+  survives, and it is the one label CI can also derive for future patches — so
+  it names releases in both eras. The epoch stays the release key.
 
 **Neither publishes** — run `gh release` yourself once the artifacts look right.
 
@@ -48,9 +49,6 @@ from SteamDB: export a depot's manifest history and parse it into
 | `poe1-program.tsv` | app 238960, program 238962 |
 | `poe2-content.tsv` | app 2694490, content 2694491 |
 | `poe2-program.tsv` | app 2694490, program 2694492 |
-
-`leagues.tsv` maps a `<game> <TAB> major.minor <TAB> league` prefix to the short
-league name used in `versions.json`.
 
 ## Run
 

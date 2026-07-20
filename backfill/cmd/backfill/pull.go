@@ -122,7 +122,7 @@ func pullPatch(ctx context.Context, g game, d dirs, s steam, c *cache.Cache, e e
 		return fmt.Errorf("caching bundles: %w", err)
 	}
 
-	if err = writeArtifacts(ctx, label, outDir, e); err != nil {
+	if err = writeArtifacts(ctx, g, label, outDir, e); err != nil {
 		return err
 	}
 
@@ -135,7 +135,7 @@ func pullPatch(ctx context.Context, g game, d dirs, s steam, c *cache.Cache, e e
 }
 
 // writeArtifacts extracts this patch's release files from the now-populated cache.
-func writeArtifacts(ctx context.Context, label, outDir string, e entry) error {
+func writeArtifacts(ctx context.Context, g game, label, outDir string, e entry) error {
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return err
 	}
@@ -146,7 +146,7 @@ func writeArtifacts(ctx context.Context, label, outDir string, e entry) error {
 		return err
 	}
 	return writeRelease(filepath.Join(outDir, "versions.json"), release{
-		Manifest: e.Manifest, Epoch: e.Epoch, Date: e.Date,
+		Game: g.name, Manifest: e.Manifest, Epoch: e.Epoch, Date: e.Date,
 	})
 }
 

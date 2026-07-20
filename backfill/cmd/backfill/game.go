@@ -49,7 +49,6 @@ func newDirs() dirs {
 
 func (d dirs) contentCatalog(g game) string { return filepath.Join(d.root, g.name+"-content.tsv") }
 func (d dirs) programCatalog(g game) string { return filepath.Join(d.root, g.name+"-program.tsv") }
-func (d dirs) leagues() string              { return filepath.Join(d.root, "leagues.tsv") }
 func (d dirs) out(g game) string            { return filepath.Join(d.root, "data", "out", g.name) }
 func (d dirs) work() string                 { return filepath.Join(d.root, "data", "work") }
 func (d dirs) versionCache(g game) string {

@@ -38,9 +38,6 @@ func runVersions(ctx context.Context, args []string) error {
 	}
 	d := newDirs()
 	s := steam{ddl: *ddl, account: *account, work: d.work()}
-	if err := s.validate(); err != nil {
-		return err
-	}
 
 	content, paired, err := loadPairing(d, g)
 	if err != nil {
@@ -56,11 +53,7 @@ func runVersions(ctx context.Context, args []string) error {
 		return err
 	}
 
-	leagueMap, err := loadLeagues(d.leagues())
-	if err != nil {
-		return err
-	}
-	wrote, err := enrichReleases(d, g, content, paired, resolved, leagueMap)
+	wrote, err := enrichReleases(d, g, content, paired, resolved)
 	if err != nil {
 		return err
 	}
@@ -93,11 +86,24 @@ func loadPairing(d dirs, g game) ([]entry, map[int64]string, error) {
 // resolveAll pulls every client build not already cached, recording each as it
 // goes. Reports whether it stopped early on a rate limit.
 func resolveAll(ctx context.Context, g game, d dirs, s steam, paired map[int64]string, resolved map[string]string, throttle time.Duration) (bool, error) {
-	fmt.Printf("resolving client versions for %s\n", g.name)
+	var pending []string
 	for _, pm := range uniqueSorted(paired) {
-		if _, ok := resolved[pm]; ok {
-			continue
+		if _, ok := resolved[pm]; !ok {
+			pending = append(pending, pm)
 		}
+	}
+	if len(pending) == 0 {
+		// Nothing to pull, so don't insist on DepotDownloader — rewriting
+		// versions.json from the cache is useful on its own.
+		fmt.Printf("all %d client versions already resolved for %s\n", len(resolved), g.name)
+		return false, nil
+	}
+	if err := s.validate(); err != nil {
+		return false, err
+	}
+
+	fmt.Printf("resolving %d client versions for %s\n", len(pending), g.name)
+	for _, pm := range pending {
 		version, err := resolveVersion(ctx, g, d, s, pm)
 		if errors.Is(err, errRateLimited) {
 			fmt.Println("RATE-LIMITED — cool down, then rerun to resume")
@@ -201,9 +207,9 @@ func splitVersion(v string) ([]int, string) {
 	return nums, letter
 }
 
-// enrichReleases writes client_version, program_manifest and league into each
-// release that has a resolved version, leaving the rest untouched.
-func enrichReleases(d dirs, g game, content []entry, paired map[int64]string, resolved map[string]string, l leagues) (int, error) {
+// enrichReleases writes client_version and program_manifest into each release
+// that has a resolved version, leaving the rest untouched.
+func enrichReleases(d dirs, g game, content []entry, paired map[int64]string, resolved map[string]string) (int, error) {
 	wrote := 0
 	for _, e := range content {
 		pm, ok := paired[e.Epoch]
@@ -222,9 +228,9 @@ func enrichReleases(d dirs, g game, content []entry, paired map[int64]string, re
 		if err != nil {
 			return wrote, err
 		}
+		r.Game = g.name // backfills the field on releases pulled before it existed
 		r.ClientVersion = version
 		r.ProgramManifest = pm
-		r.League = l.lookup(g.name, version)
 		if err := writeRelease(path, r); err != nil {
 			return wrote, err
 		}

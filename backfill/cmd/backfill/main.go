@@ -3,7 +3,7 @@
 // exiledb CLI.
 //
 //	backfill pull     --game poe1   # content depot -> release artifacts
-//	backfill versions --game poe1   # program depot -> client_version + league
+//	backfill versions --game poe1   # program depot -> client_version
 //
 // It drives DepotDownloader for depot access and calls exiledb's own internal
 // packages for everything else, so cache paths, dat parsing and index handling

@@ -68,37 +68,3 @@ func pairPrograms(content, program []entry) map[int64]string {
 	}
 	return paired
 }
-
-// leagues maps "<game>/<major.minor>" to a short league name.
-type leagues map[string]string
-
-func loadLeagues(path string) (leagues, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, fmt.Errorf("opening leagues: %w", err)
-	}
-	defer f.Close()
-
-	out := leagues{}
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		fields := strings.Split(strings.TrimSpace(sc.Text()), "\t")
-		if len(fields) != 3 || fields[0] == "game" {
-			continue
-		}
-		out[fields[0]+"/"+fields[1]] = fields[2]
-	}
-	if err := sc.Err(); err != nil {
-		return nil, fmt.Errorf("reading leagues: %w", err)
-	}
-	return out, nil
-}
-
-// lookup resolves the league for a client version, keyed on its major.minor.
-func (l leagues) lookup(gameName, version string) string {
-	parts := strings.Split(version, ".")
-	if len(parts) < 2 {
-		return ""
-	}
-	return l[gameName+"/"+parts[0]+"."+parts[1]]
-}
