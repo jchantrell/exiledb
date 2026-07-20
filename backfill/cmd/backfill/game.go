@@ -12,6 +12,7 @@ import (
 // keys the cache.
 type game struct {
 	name         string
+	title        string // display name used in release titles
 	app          int
 	contentDepot int
 	programDepot int
@@ -19,8 +20,8 @@ type game struct {
 }
 
 var games = map[string]game{
-	"poe1": {name: "poe1", app: 238960, contentDepot: 238961, programDepot: 238962, major: 3},
-	"poe2": {name: "poe2", app: 2694490, contentDepot: 2694491, programDepot: 2694492, major: 4},
+	"poe1": {name: "poe1", title: "PoE1", app: 238960, contentDepot: 238961, programDepot: 238962, major: 3},
+	"poe2": {name: "poe2", title: "PoE2", app: 2694490, contentDepot: 2694491, programDepot: 2694492, major: 4},
 }
 
 func lookupGame(name string) (game, error) {

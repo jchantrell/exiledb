@@ -4,6 +4,7 @@
 //
 //	backfill pull     --game poe1   # content depot -> release artifacts
 //	backfill versions --game poe1   # program depot -> client_version
+//	backfill release  --game poe1   # publish to GitHub (dry run by default)
 //
 // It drives DepotDownloader for depot access and calls exiledb's own internal
 // packages for everything else, so cache paths, dat parsing and index handling
@@ -33,6 +34,8 @@ func main() {
 		err = runPull(ctx, os.Args[2:])
 	case "versions":
 		err = runVersions(ctx, os.Args[2:])
+	case "release":
+		err = runRelease(ctx, os.Args[2:])
 	case "-h", "--help", "help":
 		usage()
 		return
@@ -53,6 +56,7 @@ func usage() {
 commands:
   pull       pull each catalog patch's content depot and write release artifacts
   versions   resolve each release's client version from the program depot
+  release    publish pulled releases to GitHub (dry run unless -publish)
 
 run "backfill <command> -h" for flags
 `)
