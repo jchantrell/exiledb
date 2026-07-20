@@ -125,7 +125,7 @@ func renderRelease(g game, outDir, prevDir string) (renderedRelease, error) {
 	}
 	rel := renderedRelease{
 		tag:    fmt.Sprintf("data-%s-%d", g.name, r.Epoch),
-		title:  fmt.Sprintf("%s %s — %s", g.title, label, r.Date),
+		title:  fmt.Sprintf("%s %s (%s)", g.title, label, r.Date),
 		assets: []string{manifestAsset, "dat-stats.jsonl", "versions.json"},
 	}
 

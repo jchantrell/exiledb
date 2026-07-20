@@ -16,7 +16,7 @@ esac
 # version if the exe tag could not be read.
 CLIENT_VERSION=$(jq -r '.client_version // empty' "$OUT/versions.json" 2>/dev/null || true)
 DATE=$(jq -r '.date // empty' "$OUT/versions.json" 2>/dev/null || true)
-TITLE="${TITLE_PREFIX} ${CLIENT_VERSION:-$VERSION}${DATE:+ — $DATE}"
+TITLE="${TITLE_PREFIX} ${CLIENT_VERSION:-$VERSION}${DATE:+ ($DATE)}"
 
 ASSETS=("$OUT/manifest.txt.gz" "$OUT/dat-stats.jsonl")
 for f in versions.json added-files.txt removed-files.txt; do
