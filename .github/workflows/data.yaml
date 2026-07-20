@@ -84,8 +84,19 @@ jobs:
             poe1) APP=238960; DEPOT=238961 ;;
             poe2) APP=2694490; DEPOT=2694491 ;;
           esac
-          pip install --quiet --disable-pip-version-check steam >/dev/null 2>&1 || true
-          MANIFEST=$(python3 .github/scripts/pics-manifest.py "$APP" "$DEPOT" 2>/dev/null || true)
+          # steam[client], not steam: the bare package ships none of the client
+          # dependencies SteamClient needs, so the import fails and the gate
+          # silently degrades to a no-op.
+          if ! pip install --quiet --disable-pip-version-check 'steam[client]'; then
+            echo "::warning::$GAME: installing steam[client] failed, cannot read the Steam manifest"
+          fi
+          MANIFEST=$(python3 .github/scripts/pics-manifest.py "$APP" "$DEPOT" || true)
+          if [ -z "$MANIFEST" ]; then
+            # Publish anyway — a gate we can't evaluate shouldn't stop releases —
+            # but say so, or the only symptom is a duplicate release and a
+            # versions.json quietly missing its manifest.
+            echo "::warning::$GAME: no Steam content manifest; publishing without correlation and without the client-only skip"
+          fi
           echo "manifest=$MANIFEST" >> "$GITHUB_OUTPUT"
 
           if [ "$FORCE" = "true" ]; then
