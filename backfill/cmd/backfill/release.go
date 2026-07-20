@@ -135,8 +135,11 @@ func renderRelease(g game, outDir, prevDir string) (renderedRelease, error) {
 	}
 	rel.body = body
 
+	// A value-only patch adds and removes no files, leaving these empty. GitHub
+	// rejects a zero-length asset upload, and an empty file is nothing to
+	// download anyway, so skip them — the notes still report the zero counts.
 	for _, f := range []string{"added-files.txt", "removed-files.txt"} {
-		if _, err := os.Stat(filepath.Join(outDir, f)); err == nil {
+		if fi, err := os.Stat(filepath.Join(outDir, f)); err == nil && fi.Size() > 0 {
 			rel.assets = append(rel.assets, f)
 		}
 	}
@@ -182,11 +185,20 @@ func renderBody(g game, r release, outDir, prevDir string) (string, error) {
 
 	fmt.Fprintf(&b, "Compared against %s (%s):\n", prev.ClientVersion, prev.Date)
 	fmt.Fprintf(&b, "- Total files: %d\n", files)
-	fmt.Fprintf(&b, "- Added: %d (`added-files.txt`)\n", added)
-	fmt.Fprintf(&b, "- Removed: %d (`removed-files.txt`)\n", removed)
+	fmt.Fprintf(&b, "- Added: %d%s\n", added, assetRef("added-files.txt", added))
+	fmt.Fprintf(&b, "- Removed: %d%s\n", removed, assetRef("removed-files.txt", removed))
 	fmt.Fprintf(&b, "- Dat tables: %d — %d added, %d removed, %d changed (%d value-only) (`dat-stats.jsonl`)\n",
 		s.Total, s.Added, s.Removed, s.Changed, s.Value)
 	return b.String(), nil
+}
+
+// assetRef names the backing file only when it is actually published — a
+// zero-count diff has no asset to point at.
+func assetRef(name string, count int) string {
+	if count == 0 {
+		return ""
+	}
+	return fmt.Sprintf(" (`%s`)", name)
 }
 
 func printDryRun(outDir string, rel renderedRelease) {
