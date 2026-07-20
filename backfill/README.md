@@ -52,16 +52,27 @@ from SteamDB: export a depot's manifest history and parse it into
 
 ## Run
 
-    ./build-corpus.sh                                    # Phase 0 (optional; content tier only)
+From the repo root (paths resolve off the source location, so any directory
+works):
 
-    go run ./cmd/backfill pull     -game poe1 -throttle 8s
-    go run ./cmd/backfill versions -game poe1 -throttle 8s
+    go run ./backfill/cmd/backfill pull     -game poe1 -throttle 8s
+    go run ./backfill/cmd/backfill versions -game poe1 -throttle 8s
+    go run ./backfill/cmd/backfill release  -game poe1
 
-`-ddl` and `-account` default to `$DDL` and `$ACCOUNT`. The account must own the
-game's license and have a cached session (`-remember-password`); that session is
-keyed to the DepotDownloader path, so keep it stable.
+    backfill/build-corpus.sh    # Phase 0 (optional; content tier only)
 
-Both commands are resumable: `pull` skips releases already built, `versions`
-skips builds already in `data/versions-<game>.tsv`. Steam rate-limits login
-frequency, so both stop cleanly on `RateLimitExceeded` — cool down and rerun.
-`-throttle` spaces out pulls to stay under it. `data/` is git-ignored.
+`pull` and `versions` take `-ddl` and `-account`, defaulting to `$DDL` and
+`$ACCOUNT`. The account must own the game's license and have a cached session
+(`-remember-password`); that session is keyed to the DepotDownloader path, so
+keep it stable. `versions` only needs DepotDownloader when something is
+unresolved — rewriting `versions.json` from the cache works without it.
+
+`release` is a **dry run** unless given `-publish`, which also needs
+`-repo owner/name` (or `$REPO`) and an authenticated `gh`. `-limit N` publishes
+at most N, for working through the backlog in batches.
+
+All three are resumable: `pull` skips releases already built, `versions` skips
+builds already in `data/versions-<game>.tsv`, and `release` skips tags that
+already exist. Steam rate-limits login frequency, so `pull` and `versions` stop
+cleanly on `RateLimitExceeded` — cool down and rerun; `-throttle` spaces out
+pulls to stay under it. `data/` is git-ignored.
