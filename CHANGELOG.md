@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.8.0](https://github.com/jchantrell/exiledb/compare/v1.7.0...v1.8.0) (2026-07-20)
+
+
+### Features
+
+* **backfill:** add league name to enriched versions.json ([1d613cd](https://github.com/jchantrell/exiledb/commit/1d613cd912a93d1a9ad2db61069b007c12fc3487))
+* **backfill:** add local historical backfill tooling ([26adf91](https://github.com/jchantrell/exiledb/commit/26adf91a2f78ecdf3c4a32f73711745f39c690c1))
+* **backfill:** add PoE2 league names (4.1-4.5) ([52f9aa5](https://github.com/jchantrell/exiledb/commit/52f9aa5137260ae992a4fc01caa2f0ef3c489da8))
+* **backfill:** add THROTTLE to space out Steam logins ([1325738](https://github.com/jchantrell/exiledb/commit/132573861e6751780f718e1717f507144e4546f4))
+* **backfill:** client-version enrichment from program depot ([bc115a6](https://github.com/jchantrell/exiledb/commit/bc115a60631a95c8b061909239dbdad08bf5bdf5))
+* **backfill:** content-only epoch-tagged PoE1 history ([61d3e50](https://github.com/jchantrell/exiledb/commit/61d3e5065cd7d4971b03584777b3d545a59e795e))
+* **backfill:** scope output per game (out/&lt;game&gt;/&lt;epoch&gt;) ([8fcf019](https://github.com/jchantrell/exiledb/commit/8fcf0195e325202b0dfdb27d3680ec306e1a5c2a))
+* **data:** content-gate CI releases via Steam manifest + correlate ([95c36f5](https://github.com/jchantrell/exiledb/commit/95c36f562595b1f2492c2ce3f203885aeb4d0fed))
+* **data:** name releases by client version, unify versions.json ([ab30082](https://github.com/jchantrell/exiledb/commit/ab30082a2ab22a08a162cc0386140bb84d78a61d))
+* **data:** record exe build tag alongside CDN version ([8400b5f](https://github.com/jchantrell/exiledb/commit/8400b5f8b7ccfc0aedf9e42f16a70f25c6779a38))
+* **extract:** add --schema to override community schema source ([977034c](https://github.com/jchantrell/exiledb/commit/977034c176a43b17c4bd6a19e1b7e5ae12ef9afa))
+* **extract:** unify 64-bit dat extensions (.datc64 + .dat64) ([b6f2ab3](https://github.com/jchantrell/exiledb/commit/b6f2ab34d71c62a06006e07c78d0e8242887e952))
+* **manifest:** add --stats for per-dat structural metrics and content hash ([87a05c8](https://github.com/jchantrell/exiledb/commit/87a05c8a709ddd247ca83a8f81952c624fc86dc4))
+* **manifest:** scope --stats to configured languages, default English ([f18aae9](https://github.com/jchantrell/exiledb/commit/f18aae99035a62efdccb5d457f9f35bb5529a3ff))
+
+
+### Bug Fixes
+
+* **backfill:** fail-fast on Steam RateLimitExceeded ([7fa4814](https://github.com/jchantrell/exiledb/commit/7fa4814825f22823a24458d1fb1971ec8456c20d))
+* **backfill:** make schema-corpus builder robust ([f4db489](https://github.com/jchantrell/exiledb/commit/f4db489fbfa6619d0fe4d0684e94eb0069e65d51))
+* **backfill:** match cache.BundlePath sanitization for space-named bundles ([742163e](https://github.com/jchantrell/exiledb/commit/742163ef01fb36336c33a5236ffdf6eab623adb1))
+* **data:** install steam[client] so the content gate actually works ([d88855e](https://github.com/jchantrell/exiledb/commit/d88855ec73fda1559d113abd449b3d1d571ab637))
+* **data:** unblock releases, drop line-count guards, gzip manifest ([619db92](https://github.com/jchantrell/exiledb/commit/619db92bcee6346977d3d61659ac48befe4ffebf))
+
 ## [1.7.0](https://github.com/jchantrell/exiledb/compare/v1.6.0...v1.7.0) (2026-07-06)
 
 
