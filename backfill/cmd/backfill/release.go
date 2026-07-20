@@ -45,7 +45,23 @@ func runRelease(ctx context.Context, args []string) error {
 	if !*publish {
 		fmt.Println("DRY RUN — nothing will be created. Re-run with -publish to apply.")
 	}
-	done, skipped := 0, 0
+	done, skipped, err := releaseAll(ctx, g, d, catalog, *repo, *publish, *limit)
+	if err != nil {
+		return err
+	}
+
+	verb := "would publish"
+	if *publish {
+		verb = "published"
+	}
+	fmt.Printf("\n%s %d releases (%d already present)\n", verb, done, skipped)
+	return nil
+}
+
+// releaseAll walks the catalog oldest to newest so each release's notes can
+// diff against the one before it. Already-published tags are skipped, which is
+// what lets an interrupted upload resume.
+func releaseAll(ctx context.Context, g game, d dirs, catalog []entry, repo string, publish bool, limit int) (done, skipped int, err error) {
 	for i, e := range catalog {
 		outDir := filepath.Join(d.out(g), fmt.Sprint(e.Epoch))
 		if _, err := os.Stat(outDir); err != nil {
@@ -58,36 +74,32 @@ func runRelease(ctx context.Context, args []string) error {
 
 		rel, err := renderRelease(g, outDir, prevDir)
 		if err != nil {
-			return fmt.Errorf("rendering %d: %w", e.Epoch, err)
+			return done, skipped, fmt.Errorf("rendering %d: %w", e.Epoch, err)
 		}
 
-		if *publish {
-			if exists, err := releaseExists(ctx, *repo, rel.tag); err != nil {
-				return err
-			} else if exists {
+		if !publish {
+			printDryRun(outDir, rel)
+		} else {
+			exists, err := releaseExists(ctx, repo, rel.tag)
+			if err != nil {
+				return done, skipped, err
+			}
+			if exists {
 				skipped++
 				continue
 			}
-			if err := publishRelease(ctx, *repo, outDir, d.work(), rel); err != nil {
-				return fmt.Errorf("publishing %s: %w", rel.tag, err)
+			if err := publishRelease(ctx, repo, outDir, d.work(), rel); err != nil {
+				return done, skipped, fmt.Errorf("publishing %s: %w", rel.tag, err)
 			}
 			fmt.Printf("published %s  %s\n", rel.tag, rel.title)
-		} else {
-			printDryRun(outDir, rel)
 		}
 
 		done++
-		if *limit > 0 && done >= *limit {
-			break
+		if limit > 0 && done >= limit {
+			return done, skipped, nil
 		}
 	}
-
-	verb := "would publish"
-	if *publish {
-		verb = "published"
-	}
-	fmt.Printf("\n%s %d releases (%d already present)\n", verb, done, skipped)
-	return nil
+	return done, skipped, nil
 }
 
 // renderedRelease is everything GitHub needs for one release.
