@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.9.0](https://github.com/jchantrell/exiledb/compare/v1.8.0...v1.9.0) (2026-07-21)
+
+
+### Features
+
+* **backfill:** add release command with dry-run default ([e612863](https://github.com/jchantrell/exiledb/commit/e61286369e13ff18f3f1cc466515021e99fdc35d))
+* **backfill:** drop verbose provenance line, add -update mode ([6eab438](https://github.com/jchantrell/exiledb/commit/6eab4382c5f86427702655ca67ead45f94b1295d))
+
+
+### Bug Fixes
+
+* **backfill:** skip empty diff assets, they break the upload ([ad1dbb9](https://github.com/jchantrell/exiledb/commit/ad1dbb946cccc04c67046ac77a867e158d7402c7))
+
 ## [1.8.0](https://github.com/jchantrell/exiledb/compare/v1.7.0...v1.8.0) (2026-07-20)
 
 
