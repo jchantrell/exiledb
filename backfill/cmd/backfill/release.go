@@ -24,6 +24,7 @@ func runRelease(ctx context.Context, args []string) error {
 	gameName := fs.String("game", "poe1", "game to publish (poe1|poe2)")
 	repo := fs.String("repo", os.Getenv("REPO"), "target repo owner/name (or $REPO)")
 	publish := fs.Bool("publish", false, "actually create releases (default: dry run)")
+	update := fs.Bool("update", false, "rewrite title and notes on existing releases instead of skipping (no asset re-upload)")
 	limit := fs.Int("limit", 0, "publish at most N releases (0 = all), for batching")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -45,7 +46,7 @@ func runRelease(ctx context.Context, args []string) error {
 	if !*publish {
 		fmt.Println("DRY RUN — nothing will be created. Re-run with -publish to apply.")
 	}
-	done, skipped, err := releaseAll(ctx, g, d, catalog, *repo, *publish, *limit)
+	done, skipped, err := releaseAll(ctx, g, d, catalog, *repo, *publish, *update, *limit)
 	if err != nil {
 		return err
 	}
@@ -61,7 +62,7 @@ func runRelease(ctx context.Context, args []string) error {
 // releaseAll walks the catalog oldest to newest so each release's notes can
 // diff against the one before it. Already-published tags are skipped, which is
 // what lets an interrupted upload resume.
-func releaseAll(ctx context.Context, g game, d dirs, catalog []entry, repo string, publish bool, limit int) (done, skipped int, err error) {
+func releaseAll(ctx context.Context, g game, d dirs, catalog []entry, repo string, publish, update bool, limit int) (done, skipped int, err error) {
 	for i, e := range catalog {
 		outDir := filepath.Join(d.out(g), fmt.Sprint(e.Epoch))
 		if _, err := os.Stat(outDir); err != nil {
@@ -84,14 +85,21 @@ func releaseAll(ctx context.Context, g game, d dirs, catalog []entry, repo strin
 			if err != nil {
 				return done, skipped, err
 			}
-			if exists {
+			switch {
+			case exists && !update:
 				skipped++
 				continue
+			case exists:
+				if err := updateRelease(ctx, repo, d.work(), rel); err != nil {
+					return done, skipped, fmt.Errorf("updating %s: %w", rel.tag, err)
+				}
+				fmt.Printf("updated %s  %s\n", rel.tag, rel.title)
+			default:
+				if err := publishRelease(ctx, repo, outDir, d.work(), rel); err != nil {
+					return done, skipped, fmt.Errorf("publishing %s: %w", rel.tag, err)
+				}
+				fmt.Printf("published %s  %s\n", rel.tag, rel.title)
 			}
-			if err := publishRelease(ctx, repo, outDir, d.work(), rel); err != nil {
-				return done, skipped, fmt.Errorf("publishing %s: %w", rel.tag, err)
-			}
-			fmt.Printf("published %s  %s\n", rel.tag, rel.title)
 		}
 
 		done++
@@ -100,6 +108,25 @@ func releaseAll(ctx context.Context, g game, d dirs, catalog []entry, repo strin
 		}
 	}
 	return done, skipped, nil
+}
+
+// updateRelease rewrites an existing release's title and notes. Assets are left
+// untouched — this is for correcting the rendered text, not re-uploading data.
+func updateRelease(ctx context.Context, repo, workDir string, rel renderedRelease) error {
+	notes := filepath.Join(workDir, "notes.md")
+	if err := os.WriteFile(notes, []byte(rel.body), 0o644); err != nil {
+		return err
+	}
+	defer os.Remove(notes)
+
+	cmd := exec.CommandContext(ctx, "gh", "release", "edit", rel.tag,
+		"--repo", repo, "--title", rel.title, "--notes-file", notes)
+	var out bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &out
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("gh release edit: %w\n%s", err, tail(out.String(), 10))
+	}
+	return nil
 }
 
 // renderedRelease is everything GitHub needs for one release.
@@ -158,8 +185,6 @@ func renderBody(g game, r release, outDir, prevDir string) (string, error) {
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "File manifest for %s patch %s (%s).\n\n", g.title, r.ClientVersion, r.Date)
-	fmt.Fprintf(&b, "Reconstructed from Steam content manifest `%s` — the CDN only serves the\n"+
-		"current patch, so historical data is recovered from the depot instead.\n\n", r.Manifest)
 
 	prev, prevErr := readRelease(filepath.Join(prevDir, "versions.json"))
 	if prevDir == "" || prevErr != nil {
